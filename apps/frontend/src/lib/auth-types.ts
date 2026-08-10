@@ -37,6 +37,18 @@ export interface TeamMember {
   joined_at: string;
 }
 
+export interface WorkspaceSettings {
+  id: string;
+  name: string;
+  slug: string;
+  inbound_key: string;
+  /** Address customers email (or forward their support address to). */
+  inbound_address: string;
+  support_email?: string | null;
+  custom_domain?: string | null;
+  custom_domain_verified: boolean;
+}
+
 export interface Invite {
   id: string;
   email: string;

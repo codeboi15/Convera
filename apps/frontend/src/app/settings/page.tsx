@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth";
-import type { Invite, TeamMember } from "@/lib/auth-types";
+import type { Invite, TeamMember, WorkspaceSettings } from "@/lib/auth-types";
 import type { Role } from "@/lib/types";
 import { Alert, Avatar, Badge, Button, Field, Select } from "@/components/ui";
 
@@ -16,15 +16,42 @@ export default function SettingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [lastLink, setLastLink] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [ws, setWs] = useState<WorkspaceSettings | null>(null);
+  const [supportEmail, setSupportEmail] = useState("");
+  const [savingEmail, setSavingEmail] = useState(false);
+  const [emailSaved, setEmailSaved] = useState(false);
+  const [copiedAddress, setCopiedAddress] = useState(false);
 
   const load = useCallback(async () => {
     try {
       setMembers(await authFetch<TeamMember[]>("/api/team/members"));
+      const settings = await authFetch<WorkspaceSettings>("/api/workspace");
+      setWs(settings);
+      setSupportEmail(settings.support_email ?? "");
       if (isAdmin) setInvites(await authFetch<Invite[]>("/api/team/invites"));
     } catch {
       /* ignore */
     }
   }, [authFetch, isAdmin]);
+
+  const saveSupportEmail = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setSavingEmail(true);
+    try {
+      const updated = await authFetch<WorkspaceSettings>("/api/workspace/email", {
+        method: "PATCH",
+        body: { support_email: supportEmail || null },
+      });
+      setWs(updated);
+      setEmailSaved(true);
+      setTimeout(() => setEmailSaved(false), 2000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save the address.");
+    } finally {
+      setSavingEmail(false);
+    }
+  };
 
   useEffect(() => {
     load();
@@ -123,6 +150,80 @@ export default function SettingsPage() {
               </Button>
             </a>
           </div>
+        </section>
+
+        {/* Email channel */}
+        <section className="card p-6">
+          <h2 className="font-semibold tracking-tight">Connect your email</h2>
+          <p className="mt-1 text-sm text-neutral-600">
+            Every workspace gets its own address. Email sent here becomes a
+            conversation in this inbox.
+          </p>
+
+          <div className="mt-4 rounded-lg border border-neutral-200 bg-neutral-50 p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
+              Your inbound address
+            </p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <code className="flex-1 break-all rounded-md border border-neutral-200 bg-white px-3 py-2 text-sm">
+                {ws?.inbound_address ?? "…"}
+              </code>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  if (!ws) return;
+                  navigator.clipboard?.writeText(ws.inbound_address);
+                  setCopiedAddress(true);
+                  setTimeout(() => setCopiedAddress(false), 1800);
+                }}
+              >
+                {copiedAddress ? "Copied!" : "Copy"}
+              </Button>
+            </div>
+          </div>
+
+          <ol className="mt-4 space-y-2 text-sm text-neutral-600">
+            <li className="flex gap-2.5">
+              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand-50 text-[11px] font-bold text-brand-700">
+                1
+              </span>
+              <span>
+                In your mail provider (Gmail, Outlook, Zoho), forward{" "}
+                <strong>support@yourcompany.com</strong> to the address above.
+              </span>
+            </li>
+            <li className="flex gap-2.5">
+              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand-50 text-[11px] font-bold text-brand-700">
+                2
+              </span>
+              <span>
+                Add that same address below so replies show your branded address
+                in <code className="rounded bg-neutral-100 px-1">Reply-To</code>.
+              </span>
+            </li>
+          </ol>
+
+          {isAdmin && (
+            <form
+              onSubmit={saveSupportEmail}
+              className="mt-4 flex flex-wrap items-end gap-3"
+            >
+              <div className="min-w-[240px] flex-1">
+                <Field
+                  label="Your support address"
+                  type="email"
+                  value={supportEmail}
+                  onChange={(e) => setSupportEmail(e.target.value)}
+                  placeholder="support@yourcompany.com"
+                  hint="Optional — used as Reply-To on outgoing replies."
+                />
+              </div>
+              <Button type="submit" loading={savingEmail}>
+                {emailSaved ? "Saved!" : "Save"}
+              </Button>
+            </form>
+          )}
         </section>
 
         {/* Invite */}

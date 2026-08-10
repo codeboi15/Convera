@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from app.api.routes import auth, conversations, team, widget
+from app.api.routes import auth, conversations, team, webhooks, widget, workspace
 
 api_router = APIRouter()
 
@@ -18,6 +18,10 @@ api_router.include_router(
     conversations.router, prefix="/conversations", tags=["conversations"]
 )
 api_router.include_router(widget.router, prefix="/widget", tags=["widget"])
+api_router.include_router(
+    workspace.router, prefix="/workspace", tags=["workspace"]
+)
+api_router.include_router(webhooks.router, prefix="/webhooks", tags=["webhooks"])
 
 # Feature routers are mounted here as they are built:
-#   from app.api.routes import kb, webhooks
+#   from app.api.routes import kb

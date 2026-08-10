@@ -122,6 +122,14 @@ async def send_message(
     from app.realtime import events
 
     await events.broadcast_message(conv, message)
+
+    # Email replies leave through the worker so a slow SMTP/API call never
+    # blocks the agent's request.
+    if conv.channel == Channel.email:
+        from app.services.email.dispatch import enqueue_reply
+
+        await enqueue_reply(message.id)
+
     return MessageOut.model_validate(message)
 
 
