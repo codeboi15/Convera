@@ -38,3 +38,4 @@ requirements/
 
 # Next.js build artifacts
 apps/frontend/tsconfig.tsbuildinfo
+apps/frontend/.env.local

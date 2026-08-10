@@ -13,8 +13,8 @@ export default function Home() {
         <span className="text-brand">all in one inbox.</span>
       </h1>
       <p className="max-w-xl text-lg text-neutral-600">
-        Live chat, email, and a knowledge base — unified. This is the InterCom
-        dashboard. Scaffolding is in place; features are landing next.
+        Live chat, email, and a knowledge base — unified in one inbox, with AI
+        summaries so your team catches up in seconds.
       </p>
       <div className="flex gap-4">
         <Link

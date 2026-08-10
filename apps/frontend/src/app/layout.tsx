@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
+import { AuthProvider } from "@/lib/auth";
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: "InterCom",
-  description: "Customer communication platform — live chat, email, and knowledge base.",
+  description:
+    "Customer communication platform — live chat, email, and knowledge base.",
 };
 
 export default function RootLayout({
@@ -13,7 +15,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <AuthProvider>{children}</AuthProvider>
+      </body>
     </html>
   );
 }
