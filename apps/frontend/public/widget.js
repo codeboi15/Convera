@@ -29,7 +29,7 @@
   }
 
   var origin = new URL(script.src, window.location.href).origin;
-  var accent = script.getAttribute("data-accent") || "#0066ff";
+  var accent = script.getAttribute("data-accent") || "#4f46e5";
   var position = script.getAttribute("data-position") === "left" ? "left" : "right";
 
   var OPEN_W = 384;

@@ -13,12 +13,14 @@ const SOCKET_URL =
  *  history survive reloads and return visits. */
 const VISITOR_KEY = "intercom_visitor_id";
 
+const DEFAULT_ACCENT = "#4f46e5";
+
 type Status = "connecting" | "online" | "offline";
 
 export default function WidgetChat() {
   const params = useSearchParams();
   const workspace = params.get("workspace") ?? "";
-  const accent = params.get("accent") ?? "#0066ff";
+  const accent = params.get("accent") ?? DEFAULT_ACCENT;
 
   const [session, setSession] = useState<WidgetSession | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -251,11 +253,24 @@ export default function WidgetChat() {
         </p>
       )}
 
-      <div className="flex-1 space-y-3 overflow-y-auto bg-neutral-50 px-4 py-4">
+      <div className="scroll-thin flex-1 space-y-2.5 overflow-y-auto bg-neutral-50 px-4 py-4">
         {messages.length === 0 && (
-          <p className="mt-6 text-center text-sm text-neutral-500">
-            Send us a message — we&apos;re here to help.
-          </p>
+          <div className="mt-8 px-4 text-center">
+            <span
+              className="mx-auto flex h-11 w-11 items-center justify-center rounded-full text-white"
+              style={{ background: accent }}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+              </svg>
+            </span>
+            <p className="mt-3 text-sm font-semibold text-neutral-800">
+              Start the conversation
+            </p>
+            <p className="mt-1 text-sm text-neutral-500">
+              Ask us anything — we usually reply in a few minutes.
+            </p>
+          </div>
         )}
         {messages.map((m) => {
           const mine = m.sender_type === "contact";
@@ -265,19 +280,25 @@ export default function WidgetChat() {
               className={`flex ${mine ? "justify-end" : "justify-start"}`}
             >
               <div
-                className={`max-w-[80%] whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2 text-sm ${
+                className={`animate-msg-in max-w-[82%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed shadow-sm ${
                   mine
-                    ? "rounded-br-sm text-white"
-                    : "rounded-bl-sm border border-neutral-200 bg-white text-neutral-800"
+                    ? "rounded-br-md text-white"
+                    : "rounded-bl-md border border-neutral-200 bg-white text-neutral-800"
                 }`}
                 style={mine ? { background: accent } : undefined}
               >
-                {m.body}
-                {mine && (
-                  <span className="ml-2 align-bottom text-[10px] opacity-70">
-                    {m.read_at ? "Read" : "Sent"}
-                  </span>
-                )}
+                <p className="whitespace-pre-wrap break-words">{m.body}</p>
+                <span
+                  className={`mt-1 block text-[10px] ${
+                    mine ? "text-white/70" : "text-neutral-400"
+                  }`}
+                >
+                  {new Date(m.created_at).toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                  {mine && ` · ${m.read_at ? "Read" : "Sent"}`}
+                </span>
               </div>
             </div>
           );
