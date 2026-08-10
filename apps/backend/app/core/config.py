@@ -3,6 +3,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import List
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -39,6 +40,16 @@ class Settings(BaseSettings):
     # AI (Anthropic Claude)
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-sonnet-5"
+
+    @field_validator("database_url")
+    @classmethod
+    def _normalize_db_url(cls, v: str) -> str:
+        # Accept plain postgres URLs and pin the psycopg v3 driver used by the app.
+        if v.startswith("postgres://"):
+            v = "postgresql://" + v[len("postgres://") :]
+        if v.startswith("postgresql://"):
+            v = "postgresql+psycopg://" + v[len("postgresql://") :]
+        return v
 
     @property
     def cors_origin_list(self) -> List[str]:
