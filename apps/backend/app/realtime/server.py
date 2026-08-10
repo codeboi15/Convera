@@ -81,16 +81,6 @@ async def connect(sid: str, environ: dict, auth: Optional[dict] = None) -> bool:
     except (KeyError, ValueError, TypeError):
         return False
 
-    # Re-validate membership: a token claim alone must never grant tenant access.
-    from app.core.db import async_session
-    from app.services.auth import get_membership
-
-    async with async_session() as session:
-        membership = await get_membership(session, user_id, workspace_id)
-    if membership is None:
-        logger.debug("socket %s rejected: not a workspace member", sid)
-        return False
-
     await sio.save_session(
         sid,
         {
@@ -103,7 +93,31 @@ async def connect(sid: str, environ: dict, auth: Optional[dict] = None) -> bool:
     await sio.enter_room(sid, events.workspace_room(workspace_id))
     await presence.mark_online(str(workspace_id), f"agent:{user_id}")
     await events.broadcast_presence(workspace_id, None, f"agent:{user_id}", True)
+
+    # Membership is re-checked out of band: the handshake must not wait on a
+    # database round-trip, but a revoked member still gets disconnected.
+    sio.start_background_task(_verify_membership, sid, user_id, workspace_id)
     return True
+
+
+async def _verify_membership(
+    sid: str, user_id: uuid.UUID, workspace_id: uuid.UUID
+) -> None:
+    """Confirm the token's workspace claim against live membership."""
+    from app.core.db import async_session
+    from app.services.auth import get_membership
+
+    try:
+        async with async_session() as session:
+            membership = await get_membership(session, user_id, workspace_id)
+    except Exception:  # pragma: no cover - never leave a socket half-checked
+        logger.exception("membership verification failed for %s", sid)
+        await sio.disconnect(sid)
+        return
+
+    if membership is None:
+        logger.info("socket %s disconnected: no longer a workspace member", sid)
+        await sio.disconnect(sid)
 
 
 @sio.event
