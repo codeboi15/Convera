@@ -60,6 +60,84 @@
   }
 }
 
+/* Rendered knowledge-base article body and the editor surface share type
+   styles so the editor is a true preview of the published page. */
+@layer components {
+  .kb-article,
+  .prose-editor {
+    @apply text-[15px] leading-relaxed text-neutral-800;
+  }
+  .kb-article h1,
+  .prose-editor h1 {
+    @apply mb-3 mt-6 text-2xl font-bold tracking-tight;
+  }
+  .kb-article h2,
+  .prose-editor h2 {
+    @apply mb-2.5 mt-6 text-xl font-bold tracking-tight;
+  }
+  .kb-article h3,
+  .prose-editor h3 {
+    @apply mb-2 mt-5 text-lg font-semibold tracking-tight;
+  }
+  .kb-article p,
+  .prose-editor p {
+    @apply my-3;
+  }
+  .kb-article ul,
+  .prose-editor ul {
+    @apply my-3 list-disc space-y-1 pl-6;
+  }
+  .kb-article ol,
+  .prose-editor ol {
+    @apply my-3 list-decimal space-y-1 pl-6;
+  }
+  .kb-article a,
+  .prose-editor a {
+    @apply font-medium text-brand underline underline-offset-2;
+  }
+  .kb-article blockquote,
+  .prose-editor blockquote {
+    @apply my-4 border-l-4 border-neutral-200 pl-4 italic text-neutral-600;
+  }
+  .kb-article pre,
+  .prose-editor pre {
+    @apply my-4 overflow-x-auto rounded-lg bg-neutral-900 p-4 text-sm text-neutral-100;
+  }
+  .kb-article code,
+  .prose-editor code {
+    @apply rounded bg-neutral-100 px-1 py-0.5 text-[13px];
+  }
+  .kb-article pre code,
+  .prose-editor pre code {
+    @apply bg-transparent p-0 text-inherit;
+  }
+  .kb-article img,
+  .prose-editor img {
+    @apply my-4 max-w-full rounded-lg;
+  }
+  .kb-article hr,
+  .prose-editor hr {
+    @apply my-6 border-neutral-200;
+  }
+  .kb-article table,
+  .prose-editor table {
+    @apply my-4 w-full border-collapse text-sm;
+  }
+  .kb-article th,
+  .kb-article td,
+  .prose-editor th,
+  .prose-editor td {
+    @apply border border-neutral-200 px-3 py-2 text-left;
+  }
+}
+
+/* Placeholder for the empty editor */
+.prose-editor p.is-editor-empty:first-child::before,
+.prose-editor:empty::before {
+  content: attr(data-placeholder);
+  @apply pointer-events-none float-left h-0 text-neutral-400;
+}
+
 /* Message enter animation */
 @keyframes msg-in {
   from {

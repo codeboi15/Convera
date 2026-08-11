@@ -71,6 +71,7 @@ export default function InboxPage() {
   const [threadLoading, setThreadLoading] = useState(false);
   const [contactTyping, setContactTyping] = useState(false);
   const [sending, setSending] = useState(false);
+  const [summarizing, setSummarizing] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
@@ -254,6 +255,23 @@ export default function InboxPage() {
       loadConversations();
     } catch {
       /* ignore */
+    }
+  };
+
+  /** Ask the backend for an AI catch-up summary of this thread. */
+  const summarize = async () => {
+    if (!selectedId || summarizing) return;
+    setSummarizing(true);
+    try {
+      const updated = await authFetch<Conversation>(
+        `/api/conversations/${selectedId}/summary?force=true`,
+        { method: "POST" },
+      );
+      setDetail((d) => (d ? { ...d, ...updated } : d));
+    } catch {
+      /* summaries are best-effort; the thread stays usable */
+    } finally {
+      setSummarizing(false);
     }
   };
 
@@ -527,6 +545,41 @@ export default function InboxPage() {
                 </Button>
               )}
             </header>
+
+            {/* AI catch-up summary — offered once a thread is long enough
+                that reading it end to end is a real cost. */}
+            {(detail.ai_summary || detail.message_count >= 4) && (
+              <div className="border-b border-neutral-200 bg-white px-5 py-3">
+                <div className="rounded-xl border border-brand-200 bg-brand-50/50 p-3.5">
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-brand-700">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M12 2 9.6 8.6 3 11l6.6 2.4L12 20l2.4-6.6L21 11l-6.6-2.4L12 2z" />
+                      </svg>
+                      AI summary
+                    </p>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      loading={summarizing}
+                      onClick={summarize}
+                    >
+                      {detail.ai_summary ? "Refresh" : "Summarize"}
+                    </Button>
+                  </div>
+                  {detail.ai_summary ? (
+                    <p className="mt-1.5 whitespace-pre-wrap text-sm leading-relaxed text-neutral-700">
+                      {detail.ai_summary}
+                    </p>
+                  ) : (
+                    <p className="mt-1.5 text-sm text-neutral-500">
+                      Catch up on this conversation without reading every
+                      message.
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
 
             <div className="scroll-thin flex-1 overflow-y-auto px-6 py-5">
               {threadLoading && messages.length === 0 ? (

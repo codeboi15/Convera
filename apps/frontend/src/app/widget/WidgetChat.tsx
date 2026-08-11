@@ -9,7 +9,7 @@ import {
   SOCKET_OPTIONS,
   SOCKET_URL,
 } from "@/lib/config";
-import type { Message, WidgetSession } from "@/lib/types";
+import type { ArticleSummary, Message, WidgetSession } from "@/lib/types";
 
 /** localStorage key for the anonymous visitor id — this is what makes chat
  *  history survive reloads and return visits. */
@@ -31,6 +31,8 @@ export default function WidgetChat() {
   const [agentTyping, setAgentTyping] = useState(false);
   const [agentsOnline, setAgentsOnline] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [suggestions, setSuggestions] = useState<ArticleSummary[]>([]);
+  const [dismissedSuggestions, setDismissedSuggestions] = useState(false);
 
   const socketRef = useRef<Socket | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
@@ -171,6 +173,35 @@ export default function WidgetChat() {
       up_to_seq: lastSeq,
     });
   }, [lastSeq, session, status]);
+
+  /* Suggest help articles as the visitor types their question, so they can
+     self-serve before waiting for an agent. Debounced, and suppressed once
+     the conversation is under way or the visitor dismisses them. */
+  useEffect(() => {
+    const q = draft.trim();
+    if (!workspace || dismissedSuggestions || q.length < 4) {
+      setSuggestions([]);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      try {
+        const found = await apiFetch<ArticleSummary[]>(
+          `/api/widget/suggestions?workspace_slug=${encodeURIComponent(
+            workspace,
+          )}&q=${encodeURIComponent(q)}`,
+        );
+        if (!cancelled) setSuggestions(found);
+      } catch {
+        if (!cancelled) setSuggestions([]);
+      }
+    }, 350);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [draft, workspace, dismissedSuggestions]);
 
   const sendTyping = (isTyping: boolean) => {
     const socket = socketRef.current;
@@ -321,6 +352,59 @@ export default function WidgetChat() {
         )}
         <div ref={bottomRef} />
       </div>
+
+      {suggestions.length > 0 && (
+        <div className="border-t border-neutral-200 bg-white px-3 pb-2 pt-2.5">
+          <div className="mb-1.5 flex items-center justify-between">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-500">
+              Might help
+            </p>
+            <button
+              type="button"
+              onClick={() => setDismissedSuggestions(true)}
+              className="text-[11px] font-medium text-neutral-400 transition hover:text-neutral-700"
+            >
+              Dismiss
+            </button>
+          </div>
+          <ul className="space-y-1">
+            {suggestions.map((article) => (
+              <li key={article.id}>
+                <a
+                  href={`/kb/${workspace}/${article.slug}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-start gap-2 rounded-lg border border-neutral-200 px-2.5 py-2 text-left transition hover:border-neutral-300 hover:bg-neutral-50"
+                >
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="mt-0.5 shrink-0 text-neutral-400"
+                  >
+                    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+                  </svg>
+                  <span className="min-w-0">
+                    <span className="block truncate text-xs font-semibold text-neutral-800">
+                      {article.title}
+                    </span>
+                    {article.excerpt && (
+                      <span className="mt-0.5 line-clamp-1 block text-[11px] text-neutral-500">
+                        {article.excerpt}
+                      </span>
+                    )}
+                  </span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <form onSubmit={send} className="flex gap-2 border-t border-neutral-200 p-3">
         <input
