@@ -34,7 +34,7 @@ async def startup(ctx: dict) -> None:
     if outbound.name == "stub":
         log.warning(
             "Outbound email is 'stub' — replies will be logged, not sent. Set "
-            "EMAIL_OUTBOUND_PROVIDER (e.g. brevo) on this service."
+            "EMAIL_OUTBOUND_PROVIDER (e.g. mailjet) on this service."
         )
     if not inbound.supports_polling:
         log.warning(

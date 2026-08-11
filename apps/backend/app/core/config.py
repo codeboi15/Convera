@@ -6,7 +6,6 @@ from typing import List
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env", extra="ignore", case_sensitive=False
@@ -53,23 +52,10 @@ class Settings(BaseSettings):
     smtp_username: str = ""
     smtp_password: str = ""
 
-    # Brevo adapter (HTTPS) — used where the host blocks outbound SMTP.
-    brevo_api_key: str = ""
-    brevo_from_email: str = ""
-
-    # SendGrid adapter (HTTPS) — single-sender verification, no source-IP
-    # allowlist, which matters when the platform's outbound IPs rotate.
-    sendgrid_api_key: str = ""
-    sendgrid_from_email: str = ""
-
     # Mailjet adapter (HTTPS) — key/secret pair, single-sender verification.
     mailjet_api_key: str = ""
     mailjet_api_secret: str = ""
     mailjet_from_email: str = ""
-
-    # Resend adapter (HTTPS) — requires a verified sending domain.
-    resend_api_key: str = ""
-    resend_from_email: str = ""
 
     # Postmark adapter
     postmark_server_token: str = ""
@@ -107,10 +93,8 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         return self.app_env.lower() in {"production", "prod"}
 
-
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
-
 
 settings = get_settings()

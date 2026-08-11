@@ -1,7 +1,8 @@
 # InterCom
 
 A multi-tenant customer communication platform: live chat, email, a unified
-inbox, a knowledge base, AI conversation summaries, and custom domains.
+inbox, a knowledge base, AI conversation summaries and reply drafts, and custom
+domains.
 
 Built for the SuperProfile Member of Technical Staff assignment.
 
@@ -13,18 +14,15 @@ Built for the SuperProfile Member of Technical Staff assignment.
 | **Widget demo page** | `/demo?workspace=<workspace-slug>` |
 | **Support inbox** | `support.convera+<inbound-key>@gmail.com` (shown in Settings) |
 
----
+### Documentation
 
-## Contents
-
-- [Architecture](#architecture)
-- [What's built](#whats-built)
-- [Design decisions](#design-decisions)
-- [Known limitations](#known-limitations)
-- [What I'd build next](#what-id-build-next)
-- [Running it locally](#running-it-locally)
-- [Configuration](#configuration)
-- [Verification](#verification)
+| Document | What's in it |
+| --- | --- |
+| [docs/HLD.md](docs/HLD.md) | High-level design — services, schema, request flows, real-time and queue design |
+| [docs/SYSTEM_DESIGN.md](docs/SYSTEM_DESIGN.md) | Why Redis, why Postgres over NoSQL, how each scales, service boundaries |
+| [docs/TRADEOFFS.md](docs/TRADEOFFS.md) | Every decision and what it cost; known limitations; what's next |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Deploying and operating it |
+| [docs/CUSTOM_DOMAINS.md](docs/CUSTOM_DOMAINS.md) | Custom domains and SSL, end to end |
 
 ---
 
@@ -33,188 +31,60 @@ Built for the SuperProfile Member of Technical Staff assignment.
 Three deployables over shared Postgres and Redis.
 
 ```
-Browser (dashboard · widget · help centre)
-      │ HTTPS + WebSocket
-      ▼
-Next.js (Vercel) ──REST──▶ FastAPI (Railway) ──▶ Postgres
-                              │   ▲                 │
-                        Socket.IO│ │ Redis pub/sub   │
-                              ▼   │                 │
-                            Redis ◀── queue ──▶ Worker ──▶ Claude · Email
+        ┌──────────────────────────────────────────────┐
+        │  Next.js  (Vercel)                           │
+        │  dashboard · chat widget · public help centre│
+        └───────────────┬──────────────────────────────┘
+                        │  REST + WebSocket
+        ┌───────────────▼──────────────────────────────┐
+        │  API  (Railway)                              │
+        │  FastAPI + Socket.IO — one ASGI app          │
+        └───┬──────────────────────────────────┬───────┘
+            │                                  │
+     ┌──────▼───────┐                  ┌───────▼───────┐
+     │  Postgres    │                  │  Redis        │
+     │  everything  │                  │  queue ·      │
+     │  durable     │                  │  pub/sub ·    │
+     └──────▲───────┘                  │  rate limits ·│
+            │                          │  presence     │
+            │                          └───────┬───────┘
+        ┌───┴──────────────────────────────────▼───────┐
+        │  Worker  (Railway, arq)                      │
+        │  mail polling · sending · AI · snooze expiry │
+        └──────────────┬───────────────────────────────┘
+                       ▼
+        Gmail IMAP (in) · Mailjet (out) · Claude
 ```
 
-| Service | Stack | Responsibility |
-| --- | --- | --- |
-| **Frontend** | Next.js 14 (App Router, TS), Tailwind, Tiptap | Dashboard, embeddable widget, public help centre |
-| **API** | Python, FastAPI, `python-socketio` | REST + real-time; all business logic |
-| **Worker** | Python, arq | Mailbox polling, outbound email, AI summaries, snooze expiry |
-
-Redis does three jobs: the job queue, Socket.IO pub/sub across API instances,
-and (planned) rate-limit counters.
-
-### Multi-tenancy
-
-`workspace` is the tenant boundary. Every domain row carries `workspace_id`, and
-every query is scoped by the workspace resolved from the caller's JWT — **the
-token's claim is re-validated against `workspace_members` on every request**, so
-a forged or stale claim cannot reach another tenant's data. This is covered by
-tests that forge a workspace claim over both REST and WebSocket and assert a 403.
-
-### Real-time
-
-Socket.IO rooms per conversation. A message is **persisted first** with a
-monotonic per-conversation `seq`, then published to Redis, then fanned out by
-every API instance to its own connected clients.
-
-- **Ordering** — clients render by `seq`, never by arrival time. Verified with 12
-  concurrent sends producing strictly increasing, unique sequence numbers.
-- **Reconnection** — on reconnect the client sends its last-seen `seq` and the
-  server replays only the gap.
-- **Presence / typing / read receipts** — Redis TTL keys, ephemeral room events,
-  and a last-read-seq broadcast.
-
-### Email
-
-Inbound and outbound are **separately pluggable**, because they turned out to
-have different constraints in production (see [Known limitations](#known-limitations)).
-
-| Direction | Adapters |
-| --- | --- |
-| Inbound | `imap` (mailbox polling), `postmark` (webhook) |
-| Outbound | `mailjet`, `brevo`, `sendgrid`, `resend` (HTTPS), `imap` (SMTP), `postmark` |
-
-**One mailbox serves every workspace.** Each workspace gets an `inbound_key` at
-signup and is addressed with a plus-tag:
-
-```
-support+acme@example.com    → workspace "acme"
-support+globex@example.com  → workspace "globex"
-```
-
-Onboarding a workspace therefore requires **no change at the email provider**.
-Customers connect their own `support@theircompany.com` by forwarding to that
-address — the same model Intercom and Zendesk use, because receiving mail for a
-domain you don't control is impossible by design.
-
-Routing resolution order, chosen so a forwarder that rewrites headers can't
-misfile mail:
-
-1. plus-tag on `Delivered-To` / `OriginalRecipient`
-2. plus-tag on `To` / `Cc`
-3. `In-Reply-To` / `References` → inherit the workspace from the thread
-4. otherwise logged and dropped — never guessed into the wrong tenant
-
-Replies carry `In-Reply-To` and the accumulated `References` chain, and the sent
-`Message-ID` is stored so the customer's reply threads back. A partial unique
-index on `(workspace_id, email_message_id)` makes inbound **idempotent** — a
-webhook retry or mailbox re-poll cannot duplicate a message.
-
-### AI summaries
-
-A conversation summary is generated by Claude on demand and cached on the
-conversation row.
-
-- **Prompt** — three fixed sections (what they want / what's been tried / current
-  status), an explicit no-invention rule, and a word cap.
-- **Context windowing** — long threads keep the first 6 and last 20 messages and
-  drop the middle, so cost is bounded while both the problem framing and the
-  current state survive.
-- **Cost control** — cached against `message_count`; regenerated only after 4 new
-  messages, and never for threads shorter than 4 messages.
-- **Failure handling** — 30-second timeout, refusal detection, and a fail-soft
-  path: if the model is slow, rate-limited, or unconfigured, the dashboard
-  renders without a summary rather than erroring.
-
-### AI reply drafts (stretch feature)
-
-An agent clicks **AI draft** and gets a suggested reply in the composer,
-grounded in that workspace's own published help-centre articles — retrieval
-augmented generation over the knowledge base already built for requirement 5.
-
-- **Retrieval** — the customer's last 3 messages plus the conversation subject
-  are reduced to distinctive keywords and run through the same hybrid search
-  that powers the public help centre. The search uses `websearch_to_tsquery`,
-  which **ANDs** its terms, so a whole sentence matches nothing; searching per
-  keyword and ranking by how many searches turned an article up makes it behave
-  like an OR without a second index.
-- **Prompt** — grounds every factual claim in the retrieved articles, forbids
-  promising refunds or deadlines that are not in them, and instructs the model
-  to ask one clarifying question rather than invent an answer when the articles
-  do not cover the question.
-- **Agent in the loop** — the draft lands in the composer to be edited. Nothing
-  is ever sent automatically, and the UI names the articles it drew from so the
-  agent can check them.
-- **Cost control** — 3 articles, each truncated to 1200 characters, 500 output
-  tokens, and 60 drafts per hour per workspace.
-- **Failure handling** — same fail-soft contract as summaries: a slow,
-  unconfigured, or refusing model returns 503 and the agent just types the
-  reply themselves.
-
-Retrieval is lexical, so it depends on shared vocabulary: a customer who writes
-"can I get my money back?" against an article titled "How to request a refund"
-retrieves nothing unless one of them uses the other's word. Folding in the
-subject line covers many real cases; embeddings (pgvector) are the actual fix
-and the obvious next step.
-
-### Knowledge base search
-
-Three tiers, applied until one returns results:
-
-1. **Full text** — Postgres `websearch_to_tsquery` over a generated,
-   GIN-indexed `tsvector` for natural phrases
-2. **Substring** — partial words while a visitor is still typing, which is what
-   makes widget auto-suggest feel live
-2. **Trigram** — `pg_trgm` `word_similarity` for typos ("refnd" → refund)
-
-The trigram threshold (0.45) was measured, not guessed: `similarity()` over a
-whole title scores a short query too low ("refnd" vs *"How to request a refund"*
-= 0.167), while `word_similarity()` scores the correct match 0.50–0.80 and
-unrelated articles 0.29–0.40.
-
-### Custom domains
-
-Four concerns, only one of which is platform-specific:
-
-| Concern | Portable? |
-| --- | --- |
-| Domain → workspace mapping | ✅ |
-| Ownership verification (real DNS TXT lookup) | ✅ |
-| Host-based routing (Next.js middleware) | ✅ |
-| TLS certificate issuance | 🔌 adapter: `manual` · `caddy` · `vercel` |
-
-The `caddy` adapter needs no vendor API at all: Caddy's on-demand TLS calls our
-own `/api/public/domains/authorize` endpoint before fetching a Let's Encrypt
-certificate, so the feature works on any VPS or container host.
-
-Reserved TLDs (`.test`, `.localhost`) verify automatically. That is safe *by
-construction* rather than by an environment flag — they can never be publicly
-registered, so there is nothing to hijack — and it makes the whole flow
-demonstrable locally. See [`docs/CUSTOM_DOMAINS.md`](docs/CUSTOM_DOMAINS.md).
-
----
-
-### Rate limiting
-
-Every endpoint reachable without an account has a budget, enforced with Redis
-counters keyed on the caller's address (`X-Forwarded-For`, since Railway
-terminates the connection). Over budget returns `429` with `Retry-After`;
-allowed responses carry `X-RateLimit-Remaining`.
-
-| Endpoint | Budget | Keyed on | Why |
+| Service | Stack | Responsibility | Scales with |
 | --- | --- | --- | --- |
-| `POST /api/auth/login` | 10/min | IP | password brute force |
-| `POST /api/auth/signup` | 5/hour | IP | workspace spam |
-| `POST /api/auth/refresh` | 60/min | IP | token grinding |
-| `POST /api/team/invites/accept` | 10/hour | IP | invite-token guessing |
-| `POST /api/widget/session` | 20/min | IP | anonymous conversation spam |
-| `GET /api/widget/suggestions` | 60/min | IP | unauthenticated search load |
-| `GET /api/public/kb/*/search` | 60/min | IP | unauthenticated search load |
-| `POST /api/webhooks/postmark/inbound` | 300/min | IP | mail floods (generous — bursts are normal) |
-| `POST /api/conversations/*/summary` | 10/hour | **workspace** | spends real money at Anthropic |
+| **Frontend** | Next.js 14, TypeScript, Tailwind, Tiptap | Dashboard, embeddable widget, public help centre | Page traffic |
+| **API** | Python, FastAPI, `python-socketio` | REST + real-time; all business logic | Concurrent users and sockets |
+| **Worker** | Python, `arq` | Mailbox polling, outbound email, AI jobs, snooze expiry | Background work |
 
-Summarisation is the one budget keyed on the workspace rather than the caller:
-it is the only endpoint whose abuse costs money, and one tenant's agents should
-not be able to exhaust another's allowance.
+### The four ideas that matter
+
+**One conversation store, two channels.** A chat message and an email are both
+rows in `messages`; only `channel` on the parent conversation differs. That is
+what makes the inbox genuinely unified rather than two lists side by side.
+
+**Persist, then broadcast.** Messages are written to Postgres before they are
+fanned out over Socket.IO, and each gets a monotonic per-conversation `seq`
+allocated under a row lock with a `UNIQUE(conversation_id, seq)` backstop. The
+database decides order, not network timing — and a reconnecting client asks for
+"everything after seq N" to recover the gap.
+
+**Stateless API.** No session state lives in a process: identity is a JWT
+re-validated per request, sockets fan out through Redis, and presence is a Redis
+key with a TTL. The client uses WebSocket-only transport, so **no sticky
+sessions are needed** and any replica can serve any socket.
+
+**Vendors behind interfaces.** `EmailProvider` and `DomainProvider` are abstract
+bases selected by an environment variable. Outbound email moved Postmark → Brevo
+→ SendGrid → Mailjet during the build; each switch was configuration only.
+
+Schema, indexes, request flows, and failure handling are in
+[docs/HLD.md](docs/HLD.md).
 
 ---
 
@@ -226,146 +96,68 @@ All seven required features.
 | --- | --- | --- |
 | 1 | **Auth & team management** | JWT access/refresh, workspace switching, invites, admin/agent RBAC, agent assignment |
 | 2 | **Chat widget** | One `<script>` tag; iframe-isolated; typing indicators, presence, read receipts; history survives reload |
-| 3 | **Email channel** | Inbound parsing, `Message-ID`/`In-Reply-To`/`References` threading, queued replies |
+| 3 | **Email channel** | Inbound parsing, `Message-ID`/`In-Reply-To`/`References` threading, queued replies, idempotent redelivery |
 | 4 | **Unified inbox** | Chat + email in one list; filter by channel/assignee/status/search; assign, snooze, resolve |
 | 5 | **Knowledge base** | Rich-text editor, categories, draft/publish, public help centre with search, widget auto-suggest |
-| 6 | **AI summarization** | Claude, with windowing, caching, and fallback |
+| 6 | **AI summarization** | Claude, with context windowing, caching, and fail-soft degradation |
 | 7 | **Custom domains** | Real DNS verification, pluggable TLS, host-based routing |
 
 Plus one stretch feature:
 
 | Stretch | Notes |
 | --- | --- |
-| **AI auto-reply drafts** | Retrieval-augmented: drafts a reply grounded in the workspace's own published articles, with the agent always in the loop |
+| **AI reply drafts** | Retrieval-augmented: drafts grounded in the workspace's own published articles, with the agent always in the loop |
 
 Beyond the requirements: contact avatars and unread counts, keyboard-first
 composer, skeleton loading states, XSS sanitisation on every untrusted HTML
 path, and security headers (widget framable anywhere, dashboard `SAMEORIGIN`).
 
-### Deliberately skipped
-
-- **Analytics dashboard, SLA tracking, webhooks, canned responses** — the
-  remaining stretch items. AI auto-reply drafts was the one worth building:
-  it reuses the knowledge base and the AI plumbing already in place, so it
-  composes two existing features rather than adding a fourth surface.
-- **LangChain / LangGraph** — summarization is a single model call; a framework
-  would add a dependency and an abstraction layer without adding capability.
-- **Vector search (pgvector)** — `pgvector` is available on the database and
-  semantic retrieval would improve both widget suggestions and reply-draft
-  grounding, but it needs a separate embeddings provider (Anthropic has no
-  embeddings API). Hybrid FTS + trigram covers typos and partial words at zero
-  extra dependency; the cost is the vocabulary-mismatch limit described under
-  AI reply drafts.
-- **Per-workspace SMTP credentials** — would let replies come from the
-  workspace's own address, but it is outside the brief and means storing
-  third-party secrets. See [What I'd build next](#what-id-build-next).
-
 ---
 
-## Design decisions
+## Multi-tenancy and security
 
-**Socket.IO over raw WebSockets.** Reconnection, acks, and rooms are solved
-problems; the trade-off is less low-level control, which this workload doesn't
-need.
+`workspace` is the tenant boundary. Every tenant row carries `workspace_id`, and
+**the token's workspace claim is re-validated against `workspace_members` on
+every request** — over REST *and* WebSocket — so a forged or stale claim cannot
+reach another tenant's data.
 
-**Persist-then-broadcast.** A message is written with its `seq` before it is
-published, so ordering is a property of the database rather than of network
-timing.
+- Passwords: bcrypt, with the 72-byte truncation handled explicitly.
+- No user enumeration: one message for unknown email and wrong password.
+- All untrusted HTML (knowledge-base bodies, inbound email) is sanitised with
+  `bleach` **before storage**, so nothing can render a script.
+- Webhooks authenticate with a shared secret compared in constant time.
 
-**Queued outbound with an inline fallback.** A slow mail provider must never
-block an agent's request. If Redis is unavailable the send happens inline
-instead of failing.
+### Rate limiting
 
-**Application-level tenant scoping rather than Postgres RLS.** Every query is
-workspace-scoped in a service layer, and the JWT's workspace claim is
-re-validated per request. RLS would add defence in depth; it is noted as a
-follow-up rather than implemented, because the security boundary is already
-enforced and tested in one place.
+Every endpoint reachable without an account has a budget, enforced with Redis
+counters keyed on the caller's address (`X-Forwarded-For`, since the platform
+terminates the connection). Over budget returns `429` with `Retry-After`;
+allowed responses carry `X-RateLimit-Remaining`.
 
-**Membership re-check moved off the WebSocket handshake.** A database round-trip
-inside the Socket.IO `connect` handler exceeded the client's handshake timeout
-against a remote database, so agents silently failed to connect. Connections are
-now accepted on the signed JWT and membership is verified in a background task
-that disconnects invalid sockets — same guarantee, no blocking handshake.
-(Found by testing, not by reading the code.)
+| Endpoint | Budget | Keyed on |
+| --- | --- | --- |
+| `POST /api/auth/login` | 10/min | IP |
+| `POST /api/auth/signup` | 5/hour | IP |
+| `POST /api/auth/refresh` | 60/min | IP |
+| `POST /api/team/invites/accept` | 10/hour | IP |
+| `POST /api/widget/session` | 20/min | IP |
+| `GET /api/widget/suggestions` | 60/min | IP |
+| `GET /api/public/kb/*/search` | 60/min | IP |
+| `POST /api/webhooks/postmark/inbound` | 300/min | IP |
+| `POST /api/conversations/*/summary` | 10/hour | **workspace** |
+| `POST /api/conversations/*/draft` | 60/hour | **workspace** |
 
----
-
-## Known limitations
-
-**Outbound email required an HTTPS provider.** Railway blocks outbound SMTP:
-connections to both port 587 and port 465 fail with
-`OSError: [Errno 101] Network is unreachable`, while IMAP on 993 works normally
-— so inbound was unaffected but replies could not be sent. Outbound therefore
-moved to an HTTPS API, and inbound/outbound became separately configurable
-(`EMAIL_PROVIDER` / `EMAIL_OUTBOUND_PROVIDER`).
-
-Three HTTPS providers were then ruled out in turn for reasons that had nothing
-to do with this codebase — Postmark needs a verified domain and account
-approval, Brevo enforces a source-IP allowlist that cannot be disabled (and a
-platform's outbound IPs rotate between deploys), and SendGrid refused account
-creation. Mailjet worked. Each switch was a configuration change: routing,
-threading, and the worker were untouched, which is the return on putting the
-transport behind an interface.
-
-**Outbound mail can land in spam without a sending domain.** The provider sends
-*as* a `gmail.com` address it does not own, so DMARC alignment fails and Gmail
-files it as spam — correctly. Threading, headers, and DKIM are all intact; the
-fix is a verified sending domain (`MAILJET_FROM_EMAIL=support@yourdomain.com`),
-which is a configuration change rather than a code one.
-
-**Replies come from the platform address, not the workspace's.** `From` is the
-platform sender with the workspace's name; `Reply-To` is the workspace's own
-support address, so customer replies reach them. Sending genuinely as
-`support@acme.com` requires the customer to authorise it via DNS — see below.
-
-**Gmail sends ~500/day** and Brevo's free tier 300/day. Fine for a demo, not for
-production volume.
-
-**Domain verification is checked at the moment the button is pressed.** A domain
-whose DNS later lapses keeps its verified flag until re-verified.
-
-**TLS cannot be demonstrated on a reserved TLD.** The local custom-domain demo
-runs over HTTP; no certificate authority will issue for `.test`, since nobody can
-prove ownership of something nobody can own. The Vercel and Caddy adapters cover
-the real path.
-
-**Rate limiting fails open.** If Redis is unreachable, requests are allowed
-rather than rejected: a limiter that takes the API down when its datastore
-blips is worse than the abuse it prevents. The trade is that an attacker who
-can knock over Redis also removes the limits.
-
-**Rate limit windows are fixed, not sliding.** A caller can spend the whole
-budget at the end of one window and again at the start of the next, so the true
-worst case is twice the stated limit over a window boundary. Sliding windows
-cost a sorted set per caller; fixed windows cost one integer.
-
-**Test coverage is thin.** `tests/test_ratelimit.py` covers rate limiting;
-everything else was verified with integration scripts run against the real
-database and the deployed API rather than committed `pytest` files — the wrong
-trade for a long-lived codebase, and the first thing I would extend.
-
----
-
-## What I'd build next
-
-1. **Per-workspace sender identity**, in the order the industry does it:
-   platform sender + `Reply-To` (built) → a per-workspace address on the
-   platform's own domain → the customer's own domain via DKIM delegation. The
-   third reuses the DNS-verification flow already built for custom domains: same
-   show-records → verify → activate pattern, different record types.
-2. **Automated tests** — port the integration scripts to `pytest` with a
-   throwaway database, then add them to CI.
-3. **Analytics dashboard** — response and resolution times, busiest hours, agent
-   volume. The data is already in `messages`/`conversations`; it is a query and
-   a chart.
-4. **Postgres RLS** as defence in depth behind the existing scoping.
+The two AI endpoints are keyed on the workspace rather than the caller: they are
+the only ones whose abuse costs money, and one tenant should not be able to
+exhaust another's allowance. The limiter **fails open** — if Redis is
+unreachable, requests are served rather than rejected. That trade is argued in
+[docs/TRADEOFFS.md](docs/TRADEOFFS.md).
 
 ---
 
 ## Running it locally
 
-Prerequisites: Node 20+, Python 3.10+, and a Postgres and Redis instance.
+Prerequisites: Node 20+, Python 3.10+, Postgres, Redis.
 
 ```bash
 # Data services (optional — or point the env at hosted instances)
@@ -389,8 +181,16 @@ cp .env.example .env.local
 npm run dev
 ```
 
-Then open http://localhost:3000, create a workspace, and use
+Open http://localhost:3000, create a workspace, then use
 **Settings → Install the chat widget** to open the demo page.
+[`examples/widget-install.html`](examples/widget-install.html) shows the
+one-tag installation on a plain HTML page.
+
+Tests:
+
+```bash
+cd apps/backend && pip install -r requirements-dev.txt && pytest
+```
 
 ---
 
@@ -403,17 +203,19 @@ same build runs locally and in production.
 Backend values are read at **runtime** (restart to apply). Frontend
 `NEXT_PUBLIC_*` values are inlined at **build time** (redeploy to apply).
 
-See [`apps/backend/.env.example`](apps/backend/.env.example) and
-[`apps/frontend/.env.example`](apps/frontend/.env.example) for the full list, and
-[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for the deployment walkthrough.
+See [`apps/backend/.env.example`](apps/backend/.env.example),
+[`apps/frontend/.env.example`](apps/frontend/.env.example), and
+[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ---
 
 ## Verification
 
 Each feature was exercised against the real database and, once deployed, against
-the live API — not mocks. Rate limiting is the one area with a committed test
-suite (`cd apps/backend && pip install -r requirements-dev.txt && pytest`).
+the live API — not mocks. Rate limiting and reply-draft retrieval have committed
+`pytest` suites; everything else was verified with integration scripts, which is
+acknowledged as the wrong long-term trade in
+[docs/TRADEOFFS.md](docs/TRADEOFFS.md).
 
 | Area | Checks |
 | --- | --- |
@@ -424,7 +226,7 @@ suite (`cd apps/backend && pip install -r requirements-dev.txt && pytest`).
 | AI windowing, caching, fallback | 18 |
 | Hybrid search including typos | 8 |
 | Custom domains and host routing | 29 |
-| Brevo adapter and failure paths | 11 |
+| Outbound provider adapters and failure paths | 11 |
 | Rate limiting (`pytest`, committed) | 10 |
 | Reply-draft retrieval and grounding (`pytest`, committed) | 13 |
 | Frontend ↔ backend API contract | 16 |
@@ -433,7 +235,7 @@ suite (`cd apps/backend && pip install -r requirements-dev.txt && pytest`).
 Notable properties covered: a forged workspace claim is rejected over both REST
 and WebSocket; drafts never appear on any public surface; a duplicate inbound
 `Message-ID` cannot create a second message; concurrent sends produce strictly
-increasing sequence numbers; and the AI path degrades cleanly with no API key.
+increasing sequence numbers; and both AI paths degrade cleanly with no API key.
 
 ---
 
@@ -441,16 +243,18 @@ increasing sequence numbers; and the AI path degrades cleanly with no API key.
 
 ```
 apps/
-  backend/     FastAPI + Socket.IO API and arq worker
+  backend/            FastAPI + Socket.IO API and arq worker
     app/
-      api/         routes and dependencies
-      services/    business logic (auth, conversations, email, kb, ai, domains)
-      models/      SQLAlchemy models
-      realtime/    Socket.IO server and events
-      worker/      queue and scheduled jobs
-    alembic/       migrations
-    tests/         pytest suite
-  frontend/    Next.js dashboard, widget, and public help centre
-docs/          architecture, deployment, custom domains
-infra/         local Postgres and Redis
+      api/routes/     HTTP endpoints
+      services/       business logic (auth, conversations, email, kb, ai, domains)
+      models/         SQLAlchemy models
+      realtime/       Socket.IO server, events, presence
+      worker/         queue and scheduled jobs
+      core/           config, db, security, rate limiting
+    alembic/          migrations
+    tests/            pytest suite
+  frontend/           Next.js dashboard, widget, and public help centre
+docs/                 HLD, system design, trade-offs, deployment, custom domains
+examples/             one-tag widget installation example
+infra/                local Postgres and Redis
 ```
