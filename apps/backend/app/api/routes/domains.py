@@ -202,6 +202,36 @@ async def disconnect_domain(
 public_router = APIRouter()
 
 
+class DomainLookup(BaseModel):
+    workspace_slug: str
+    workspace_name: str
+
+
+@public_router.get("/lookup", response_model=DomainLookup)
+async def lookup_domain(
+    domain: str = Query(min_length=3, max_length=255),
+    session: AsyncSession = Depends(get_session),
+) -> DomainLookup:
+    """Resolve a custom domain to its workspace.
+
+    Used by the frontend's host-routing middleware to decide which knowledge
+    base to render. Only verified domains resolve, so an unverified claim can
+    never serve content.
+    """
+    normalized = verification.normalize_domain(domain)
+    ws = await session.scalar(
+        select(Workspace).where(
+            Workspace.custom_domain == normalized,
+            Workspace.custom_domain_verified.is_(True),
+        )
+    )
+    if ws is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Domain not connected"
+        )
+    return DomainLookup(workspace_slug=ws.slug, workspace_name=ws.name)
+
+
 @public_router.get("/authorize")
 async def authorize_domain(
     domain: str = Query(min_length=3, max_length=255),
