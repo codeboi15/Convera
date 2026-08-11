@@ -57,6 +57,61 @@ export interface ConversationList {
   offset: number;
 }
 
+export type ArticleStatus = "draft" | "published";
+
+export interface KBCategory {
+  id: string;
+  name: string;
+  slug: string;
+  position: number;
+  article_count: number;
+}
+
+export interface KBArticle {
+  id: string;
+  title: string;
+  slug: string;
+  body_html: string;
+  body_text: string;
+  status: ArticleStatus;
+  category_id?: string | null;
+  category_name?: string | null;
+  published_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Compact shape used by search results and widget suggestions. */
+export interface ArticleSummary {
+  id: string;
+  title: string;
+  slug: string;
+  excerpt: string;
+  category_name?: string | null;
+}
+
+export interface PublicCategory {
+  name: string;
+  slug: string;
+  articles: ArticleSummary[];
+}
+
+export interface PublicKnowledgeBase {
+  workspace_name: string;
+  workspace_slug: string;
+  categories: PublicCategory[];
+  uncategorized: ArticleSummary[];
+}
+
+export interface PublicArticle {
+  id: string;
+  title: string;
+  slug: string;
+  body_html: string;
+  category_name?: string | null;
+  published_at?: string | null;
+}
+
 export interface WidgetSession {
   token: string;
   visitor_id: string;
