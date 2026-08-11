@@ -62,6 +62,11 @@ class Settings(BaseSettings):
     sendgrid_api_key: str = ""
     sendgrid_from_email: str = ""
 
+    # Mailjet adapter (HTTPS) — key/secret pair, single-sender verification.
+    mailjet_api_key: str = ""
+    mailjet_api_secret: str = ""
+    mailjet_from_email: str = ""
+
     # Resend adapter (HTTPS) — requires a verified sending domain.
     resend_api_key: str = ""
     resend_from_email: str = ""

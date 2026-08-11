@@ -116,6 +116,10 @@ def _build(choice: str) -> EmailProvider:
         from app.services.email.sendgrid import SendGridProvider
 
         return SendGridProvider()
+    if choice == "mailjet":
+        from app.services.email.mailjet import MailjetProvider
+
+        return MailjetProvider()
     return StubProvider()
 
 
