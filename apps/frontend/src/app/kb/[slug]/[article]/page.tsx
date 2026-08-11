@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { API_URL } from "@/lib/config";
+import { kbBasePath } from "@/lib/kbLinks";
 import type { PublicArticle } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -39,6 +40,9 @@ export default async function PublicArticlePage({
   const article = await fetchArticle(params.slug, params.article);
   if (!article) notFound();
 
+  // On a custom domain the index is "/", not "/kb/<slug>".
+  const home = kbBasePath(params.slug) || "/";
+
   const published = article.published_at
     ? new Date(article.published_at).toLocaleDateString(undefined, {
         year: "numeric",
@@ -52,7 +56,7 @@ export default async function PublicArticlePage({
       <header className="border-b border-neutral-200 bg-white">
         <div className="mx-auto max-w-2xl px-6 py-4">
           <Link
-            href={`/kb/${params.slug}`}
+            href={home}
             className="inline-flex items-center gap-1.5 text-sm font-medium text-neutral-600 transition hover:text-neutral-900"
           >
             <svg
