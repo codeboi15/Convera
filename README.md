@@ -81,7 +81,7 @@ have different constraints in production (see [Known limitations](#known-limitat
 | Direction | Adapters |
 | --- | --- |
 | Inbound | `imap` (mailbox polling), `postmark` (webhook) |
-| Outbound | `brevo`, `resend` (HTTPS), `imap` (SMTP), `postmark` |
+| Outbound | `mailjet`, `brevo`, `sendgrid`, `resend` (HTTPS), `imap` (SMTP), `postmark` |
 
 **One mailbox serves every workspace.** Each workspace gets an `inbound_key` at
 signup and is addressed with a plus-tag:
@@ -230,10 +230,24 @@ that disconnects invalid sockets — same guarantee, no blocking handshake.
 
 **Outbound email required an HTTPS provider.** Railway blocks outbound SMTP:
 connections to both port 587 and port 465 fail with
-`OSError: [Errno 101] Network is unreachable`, while IMAP on 993 works normally.
-Inbound was therefore unaffected, but replies could not be sent over SMTP. The
-provider abstraction absorbed this — outbound moved to an HTTPS API (Brevo) by
-configuration, with no change to routing, threading, or the worker.
+`OSError: [Errno 101] Network is unreachable`, while IMAP on 993 works normally
+— so inbound was unaffected but replies could not be sent. Outbound therefore
+moved to an HTTPS API, and inbound/outbound became separately configurable
+(`EMAIL_PROVIDER` / `EMAIL_OUTBOUND_PROVIDER`).
+
+Three HTTPS providers were then ruled out in turn for reasons that had nothing
+to do with this codebase — Postmark needs a verified domain and account
+approval, Brevo enforces a source-IP allowlist that cannot be disabled (and a
+platform's outbound IPs rotate between deploys), and SendGrid refused account
+creation. Mailjet worked. Each switch was a configuration change: routing,
+threading, and the worker were untouched, which is the return on putting the
+transport behind an interface.
+
+**Outbound mail can land in spam without a sending domain.** The provider sends
+*as* a `gmail.com` address it does not own, so DMARC alignment fails and Gmail
+files it as spam — correctly. Threading, headers, and DKIM are all intact; the
+fix is a verified sending domain (`MAILJET_FROM_EMAIL=support@yourdomain.com`),
+which is a configuration change rather than a code one.
 
 **Replies come from the platform address, not the workspace's.** `From` is the
 platform sender with the workspace's name; `Reply-To` is the workspace's own
