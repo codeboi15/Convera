@@ -6,6 +6,7 @@ import { APP_URL } from "@/lib/config";
 import type { Invite, TeamMember, WorkspaceSettings } from "@/lib/auth-types";
 import type { Role } from "@/lib/types";
 import { Alert, Avatar, Badge, Button, Field, Select } from "@/components/ui";
+import CustomDomainPanel from "@/components/CustomDomainPanel";
 
 export default function SettingsPage() {
   const { authFetch, isAdmin, activeWorkspace, user } = useAuth();
@@ -226,6 +227,9 @@ export default function SettingsPage() {
             </form>
           )}
         </section>
+
+        {/* Custom domain for the public knowledge base */}
+        <CustomDomainPanel />
 
         {/* Invite */}
         {isAdmin && (
