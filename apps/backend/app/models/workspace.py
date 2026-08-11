@@ -27,11 +27,23 @@ class Workspace(UUIDMixin, TimestampMixin, Base):
     slug: Mapped[str] = mapped_column(
         String(120), unique=True, index=True, nullable=False
     )
+    # Custom domain for the public knowledge base (e.g. help.acme.com).
     custom_domain: Mapped[Optional[str]] = mapped_column(
         String(255), unique=True, index=True
     )
     custom_domain_verified: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="false", nullable=False
+    )
+    # Random token the owner publishes as a DNS TXT record to prove control of
+    # the domain before we will serve content on it.
+    custom_domain_token: Mapped[Optional[str]] = mapped_column(String(64))
+    custom_domain_verified_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True)
+    )
+    # Certificate state reported by the configured domain provider:
+    # none | pending | active | error
+    custom_domain_ssl_status: Mapped[str] = mapped_column(
+        String(20), default="none", server_default="none", nullable=False
     )
 
     # Inbound email routing. Incoming mail is addressed to

@@ -54,6 +54,15 @@ class Settings(BaseSettings):
     postmark_from_email: str = ""
     postmark_inbound_secret: str = ""
 
+    # Custom domains — TLS issuance is the only platform-specific part, so it
+    # sits behind a provider: "manual" (default), "caddy", or "vercel".
+    domain_provider: str = "manual"
+    # What customers point their CNAME at.
+    domain_cname_target: str = ""
+    vercel_token: str = ""
+    vercel_project_id: str = ""
+    vercel_team_id: str = ""
+
     # AI (Anthropic Claude)
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-sonnet-5"
