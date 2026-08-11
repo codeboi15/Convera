@@ -59,6 +59,21 @@ async def unique_slug(session: AsyncSession, name: str) -> str:
     return slug
 
 
+async def unique_inbound_key(session: AsyncSession, slug: str) -> str:
+    """Routing tag used in the workspace's inbound email address.
+
+    Generated at signup, so onboarding a workspace never needs any change at
+    the email provider.
+    """
+    base = slug[:48]
+    key = base
+    while await session.scalar(
+        select(Workspace.id).where(Workspace.inbound_key == key)
+    ):
+        key = f"{base}-{random_suffix()}"
+    return key
+
+
 async def create_user(
     session: AsyncSession, email: str, password: str, name: Optional[str] = None
 ) -> User:
@@ -75,7 +90,12 @@ async def create_user(
 async def create_workspace_with_owner(
     session: AsyncSession, name: str, owner: User
 ) -> Workspace:
-    workspace = Workspace(name=name, slug=await unique_slug(session, name))
+    slug = await unique_slug(session, name)
+    workspace = Workspace(
+        name=name,
+        slug=slug,
+        inbound_key=await unique_inbound_key(session, slug),
+    )
     session.add(workspace)
     await session.flush()
     session.add(

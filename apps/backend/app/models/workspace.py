@@ -33,6 +33,16 @@ class Workspace(UUIDMixin, TimestampMixin, Base):
     custom_domain_verified: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="false", nullable=False
     )
+
+    # Inbound email routing. Incoming mail is addressed to
+    # ``<mailbox>+<inbound_key>@<domain>`` and the plus-tag selects the tenant,
+    # so one mailbox (or one Postmark server) serves every workspace.
+    inbound_key: Mapped[str] = mapped_column(
+        String(64), unique=True, index=True, nullable=False
+    )
+    # Where the workspace forwards its real support address from, used as
+    # Reply-To so customers keep replying to their own branded address.
+    support_email: Mapped[Optional[str]] = mapped_column(String(255))
     plan: Mapped[str] = mapped_column(
         String(50), default="free", server_default="free", nullable=False
     )

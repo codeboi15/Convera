@@ -32,7 +32,24 @@ class Settings(BaseSettings):
     frontend_url: str = "http://localhost:3000"
     cors_origins: str = "http://localhost:3000"
 
-    # Email (Postmark)
+    # Email — "imap" (mailbox polling), "postmark" (webhook), or "stub" (no-op).
+    email_provider: str = "stub"
+    # Mailbox that receives every workspace's mail; the plus-tag routes it.
+    # e.g. support@example.com -> support+acme@example.com
+    email_inbound_address: str = ""
+    email_from_name: str = "Support"
+
+    # IMAP/SMTP adapter
+    imap_host: str = "imap.gmail.com"
+    imap_port: int = 993
+    imap_username: str = ""
+    imap_password: str = ""
+    smtp_host: str = "smtp.gmail.com"
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+
+    # Postmark adapter
     postmark_server_token: str = ""
     postmark_from_email: str = ""
     postmark_inbound_secret: str = ""

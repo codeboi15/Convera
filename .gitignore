@@ -35,3 +35,7 @@ build/
 
 # Requirements source (assignment brief, not app code)
 requirements/
+
+# Next.js build artifacts
+apps/frontend/tsconfig.tsbuildinfo
+apps/frontend/.env.local

@@ -9,6 +9,7 @@ from sqlalchemy import (
     DateTime,
     Enum as SAEnum,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -114,5 +115,14 @@ class Message(UUIDMixin, TimestampMixin, Base):
     __table_args__ = (
         UniqueConstraint(
             "conversation_id", "seq", name="uq_message_conversation_seq"
+        ),
+        # Idempotent inbound email: re-polling the mailbox or a webhook retry
+        # can never create the same message twice.
+        Index(
+            "uq_message_workspace_email_id",
+            "workspace_id",
+            "email_message_id",
+            unique=True,
+            postgresql_where=text("email_message_id IS NOT NULL"),
         ),
     )
