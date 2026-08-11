@@ -125,6 +125,37 @@ conversation row.
   path: if the model is slow, rate-limited, or unconfigured, the dashboard
   renders without a summary rather than erroring.
 
+### AI reply drafts (stretch feature)
+
+An agent clicks **AI draft** and gets a suggested reply in the composer,
+grounded in that workspace's own published help-centre articles — retrieval
+augmented generation over the knowledge base already built for requirement 5.
+
+- **Retrieval** — the customer's last 3 messages plus the conversation subject
+  are reduced to distinctive keywords and run through the same hybrid search
+  that powers the public help centre. The search uses `websearch_to_tsquery`,
+  which **ANDs** its terms, so a whole sentence matches nothing; searching per
+  keyword and ranking by how many searches turned an article up makes it behave
+  like an OR without a second index.
+- **Prompt** — grounds every factual claim in the retrieved articles, forbids
+  promising refunds or deadlines that are not in them, and instructs the model
+  to ask one clarifying question rather than invent an answer when the articles
+  do not cover the question.
+- **Agent in the loop** — the draft lands in the composer to be edited. Nothing
+  is ever sent automatically, and the UI names the articles it drew from so the
+  agent can check them.
+- **Cost control** — 3 articles, each truncated to 1200 characters, 500 output
+  tokens, and 60 drafts per hour per workspace.
+- **Failure handling** — same fail-soft contract as summaries: a slow,
+  unconfigured, or refusing model returns 503 and the agent just types the
+  reply themselves.
+
+Retrieval is lexical, so it depends on shared vocabulary: a customer who writes
+"can I get my money back?" against an article titled "How to request a refund"
+retrieves nothing unless one of them uses the other's word. Folding in the
+subject line covers many real cases; embeddings (pgvector) are the actual fix
+and the obvious next step.
+
 ### Knowledge base search
 
 Three tiers, applied until one returns results:
@@ -201,21 +232,30 @@ All seven required features.
 | 6 | **AI summarization** | Claude, with windowing, caching, and fallback |
 | 7 | **Custom domains** | Real DNS verification, pluggable TLS, host-based routing |
 
+Plus one stretch feature:
+
+| Stretch | Notes |
+| --- | --- |
+| **AI auto-reply drafts** | Retrieval-augmented: drafts a reply grounded in the workspace's own published articles, with the agent always in the loop |
+
 Beyond the requirements: contact avatars and unread counts, keyboard-first
 composer, skeleton loading states, XSS sanitisation on every untrusted HTML
 path, and security headers (widget framable anywhere, dashboard `SAMEORIGIN`).
 
 ### Deliberately skipped
 
-- **Analytics dashboard, SLA tracking, webhooks, canned responses, AI auto-reply
-  drafts** — stretch items; the required seven and their production hardening
-  were the better use of the remaining time.
+- **Analytics dashboard, SLA tracking, webhooks, canned responses** — the
+  remaining stretch items. AI auto-reply drafts was the one worth building:
+  it reuses the knowledge base and the AI plumbing already in place, so it
+  composes two existing features rather than adding a fourth surface.
 - **LangChain / LangGraph** — summarization is a single model call; a framework
   would add a dependency and an abstraction layer without adding capability.
 - **Vector search (pgvector)** — `pgvector` is available on the database and
-  semantic retrieval would improve widget suggestions, but it needs a separate
-  embeddings provider (Anthropic has no embeddings API). Hybrid FTS + trigram
-  covers typos and partial words at zero extra dependency.
+  semantic retrieval would improve both widget suggestions and reply-draft
+  grounding, but it needs a separate embeddings provider (Anthropic has no
+  embeddings API). Hybrid FTS + trigram covers typos and partial words at zero
+  extra dependency; the cost is the vocabulary-mismatch limit described under
+  AI reply drafts.
 - **Per-workspace SMTP credentials** — would let replies come from the
   workspace's own address, but it is outside the brief and means storing
   third-party secrets. See [What I'd build next](#what-id-build-next).
@@ -386,6 +426,7 @@ suite (`cd apps/backend && pip install -r requirements-dev.txt && pytest`).
 | Custom domains and host routing | 29 |
 | Brevo adapter and failure paths | 11 |
 | Rate limiting (`pytest`, committed) | 10 |
+| Reply-draft retrieval and grounding (`pytest`, committed) | 13 |
 | Frontend ↔ backend API contract | 16 |
 | **Production (deployed stack)** | **25** |
 

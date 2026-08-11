@@ -72,6 +72,11 @@ export default function InboxPage() {
   const [contactTyping, setContactTyping] = useState(false);
   const [sending, setSending] = useState(false);
   const [summarizing, setSummarizing] = useState(false);
+  const [drafting, setDrafting] = useState(false);
+  const [draftSources, setDraftSources] = useState<
+    { id: string; title: string }[] | null
+  >(null);
+  const [draftError, setDraftError] = useState<string | null>(null);
 
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
@@ -119,6 +124,9 @@ export default function InboxPage() {
   }, [authFetch]);
 
   useEffect(() => {
+    // A draft belongs to the conversation it was written for.
+    setDraftSources(null);
+    setDraftError(null);
     if (!selectedId) {
       setDetail(null);
       setMessages([]);
@@ -221,6 +229,8 @@ export default function InboxPage() {
     const body = draft.trim();
     if (!body || !selectedId || sending) return;
     setDraft("");
+    setDraftSources(null);
+    setDraftError(null);
     setSending(true);
     if (socket && connected && detail?.channel === "chat") {
       socket.emit(
@@ -272,6 +282,32 @@ export default function InboxPage() {
       /* summaries are best-effort; the thread stays usable */
     } finally {
       setSummarizing(false);
+    }
+  };
+
+  /**
+   * Ask the AI for a reply grounded in the workspace's help centre.
+   *
+   * The draft lands in the composer for the agent to edit — it is never sent
+   * automatically. Failures are surfaced inline and leave the composer usable.
+   */
+  const generateDraft = async () => {
+    if (!selectedId || drafting) return;
+    setDrafting(true);
+    setDraftError(null);
+    try {
+      const res = await authFetch<{
+        draft: string;
+        sources: { id: string; title: string }[];
+      }>(`/api/conversations/${selectedId}/draft`, { method: "POST" });
+      setDraft(res.draft);
+      setDraftSources(res.sources);
+      composerRef.current?.focus();
+    } catch {
+      setDraftError("Couldn't draft a reply — write one below.");
+      setDraftSources(null);
+    } finally {
+      setDrafting(false);
     }
   };
 
@@ -676,6 +712,26 @@ export default function InboxPage() {
             </div>
 
             <div className="border-t border-neutral-200 bg-white p-3">
+              {(draftSources || draftError) && (
+                <p className="mb-1.5 px-1 text-[11px] text-neutral-500">
+                  {draftError ? (
+                    <span className="text-red-600">{draftError}</span>
+                  ) : draftSources && draftSources.length > 0 ? (
+                    <>
+                      Drafted from{" "}
+                      <span className="font-medium text-neutral-700">
+                        {draftSources.map((s) => s.title).join(", ")}
+                      </span>{" "}
+                      · review before sending
+                    </>
+                  ) : (
+                    <>
+                      Drafted with no matching help centre article · check the
+                      facts before sending
+                    </>
+                  )}
+                </p>
+              )}
               <div className="focus-within:border-brand focus-within:ring-4 focus-within:ring-brand/10 flex items-end gap-2 rounded-xl border border-neutral-300 bg-white p-2 transition">
                 <textarea
                   ref={composerRef}
@@ -695,6 +751,15 @@ export default function InboxPage() {
                   }
                   className="max-h-32 min-h-[36px] flex-1 resize-none bg-transparent px-1.5 py-1.5 text-sm outline-none placeholder:text-neutral-400"
                 />
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={generateDraft}
+                  loading={drafting}
+                  title="Draft a reply from this conversation and your help centre"
+                >
+                  {drafting ? "Drafting…" : "AI draft"}
+                </Button>
                 <Button onClick={send} loading={sending} disabled={!draft.trim()}>
                   Send
                 </Button>
