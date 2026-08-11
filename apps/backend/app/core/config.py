@@ -34,6 +34,10 @@ class Settings(BaseSettings):
 
     # Email — "imap" (mailbox polling), "postmark" (webhook), or "stub" (no-op).
     email_provider: str = "stub"
+    # Outbound can use a different transport from inbound. Some hosts block
+    # outbound SMTP entirely, in which case mail must leave over HTTPS while
+    # inbound still arrives by IMAP. Blank means "same as email_provider".
+    email_outbound_provider: str = ""
     # Mailbox that receives every workspace's mail; the plus-tag routes it.
     # e.g. support@example.com -> support+acme@example.com
     email_inbound_address: str = ""
@@ -48,6 +52,24 @@ class Settings(BaseSettings):
     smtp_port: int = 587
     smtp_username: str = ""
     smtp_password: str = ""
+
+    # Brevo adapter (HTTPS) — used where the host blocks outbound SMTP.
+    brevo_api_key: str = ""
+    brevo_from_email: str = ""
+
+    # SendGrid adapter (HTTPS) — single-sender verification, no source-IP
+    # allowlist, which matters when the platform's outbound IPs rotate.
+    sendgrid_api_key: str = ""
+    sendgrid_from_email: str = ""
+
+    # Mailjet adapter (HTTPS) — key/secret pair, single-sender verification.
+    mailjet_api_key: str = ""
+    mailjet_api_secret: str = ""
+    mailjet_from_email: str = ""
+
+    # Resend adapter (HTTPS) — requires a verified sending domain.
+    resend_api_key: str = ""
+    resend_from_email: str = ""
 
     # Postmark adapter
     postmark_server_token: str = ""

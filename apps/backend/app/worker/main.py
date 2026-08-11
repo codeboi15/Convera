@@ -18,21 +18,29 @@ async def startup(ctx: dict) -> None:
     identical in the logs to one that is actually delivering mail.
     """
     from app.core.config import settings
-    from app.services.email.base import get_provider
+    from app.services.email.base import get_outbound_provider, get_provider
 
-    provider = get_provider()
-    logging.getLogger(__name__).info(
-        "worker ready | email_provider=%s polling=%s inbound=%s smtp_user=%s ai=%s",
-        provider.name,
-        provider.supports_polling,
+    log = logging.getLogger(__name__)
+    inbound = get_provider()
+    outbound = get_outbound_provider()
+    log.info(
+        "worker ready | inbound=%s (polling=%s) outbound=%s | address=%s ai=%s",
+        inbound.name,
+        inbound.supports_polling,
+        outbound.name,
         settings.email_inbound_address or "(unset)",
-        settings.smtp_username or "(unset)",
         "configured" if settings.anthropic_api_key else "MISSING",
     )
-    if provider.name == "stub":
-        logging.getLogger(__name__).warning(
-            "EMAIL_PROVIDER is 'stub' — outbound mail will be logged, not sent. "
-            "Set EMAIL_PROVIDER=imap (or postmark) on this service."
+    if outbound.name == "stub":
+        log.warning(
+            "Outbound email is 'stub' — replies will be logged, not sent. Set "
+            "EMAIL_OUTBOUND_PROVIDER (e.g. brevo) on this service."
+        )
+    if not inbound.supports_polling:
+        log.warning(
+            "Inbound provider %r does not poll — incoming email will not be "
+            "fetched by this worker.",
+            inbound.name,
         )
 
 
