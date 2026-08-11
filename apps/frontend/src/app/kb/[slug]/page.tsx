@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { API_URL } from "@/lib/config";
+import { kbBasePath } from "@/lib/kbLinks";
 import type { PublicKnowledgeBase } from "@/lib/types";
 import KnowledgeBaseBrowser from "./KnowledgeBaseBrowser";
 
@@ -47,5 +48,11 @@ export default async function PublicKnowledgeBasePage({
   const kb = await fetchKnowledgeBase(params.slug);
   if (!kb) notFound();
 
-  return <KnowledgeBaseBrowser kb={kb} slug={params.slug} />;
+  return (
+    <KnowledgeBaseBrowser
+      kb={kb}
+      slug={params.slug}
+      basePath={kbBasePath(params.slug)}
+    />
+  );
 }

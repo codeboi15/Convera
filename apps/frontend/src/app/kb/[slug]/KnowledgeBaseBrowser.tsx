@@ -8,9 +8,12 @@ import type { ArticleSummary, PublicKnowledgeBase } from "@/lib/types";
 export default function KnowledgeBaseBrowser({
   kb,
   slug,
+  basePath,
 }: {
   kb: PublicKnowledgeBase;
   slug: string;
+  /** Link prefix: "/kb/<slug>" on the platform host, "" on a custom domain. */
+  basePath: string;
 }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<ArticleSummary[] | null>(null);
@@ -117,7 +120,7 @@ export default function KnowledgeBaseBrowser({
               <ul className="space-y-2.5">
                 {results.map((a) => (
                   <li key={a.id}>
-                    <ArticleCard slug={slug} article={a} />
+                    <ArticleCard basePath={basePath} article={a} />
                   </li>
                 ))}
               </ul>
@@ -133,7 +136,7 @@ export default function KnowledgeBaseBrowser({
                 <ul className="space-y-2.5">
                   {category.articles.map((a) => (
                     <li key={a.id}>
-                      <ArticleCard slug={slug} article={a} />
+                      <ArticleCard basePath={basePath} article={a} />
                     </li>
                   ))}
                 </ul>
@@ -148,7 +151,7 @@ export default function KnowledgeBaseBrowser({
                 <ul className="space-y-2.5">
                   {kb.uncategorized.map((a) => (
                     <li key={a.id}>
-                      <ArticleCard slug={slug} article={a} />
+                      <ArticleCard basePath={basePath} article={a} />
                     </li>
                   ))}
                 </ul>
@@ -175,15 +178,15 @@ export default function KnowledgeBaseBrowser({
 }
 
 function ArticleCard({
-  slug,
+  basePath,
   article,
 }: {
-  slug: string;
+  basePath: string;
   article: ArticleSummary;
 }) {
   return (
     <Link
-      href={`/kb/${slug}/${article.slug}`}
+      href={`${basePath}/${article.slug}`}
       className="card block p-4 transition hover:border-neutral-300 hover:shadow-pop"
     >
       <p className="font-semibold tracking-tight">{article.title}</p>

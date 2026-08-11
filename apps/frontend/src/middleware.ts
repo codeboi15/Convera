@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { API_URL } from "@/lib/config";
+import { CUSTOM_DOMAIN_HEADER } from "@/lib/kbLinks";
 
 /**
  * Serves a workspace's public knowledge base on its own custom domain.
@@ -56,7 +57,14 @@ export async function middleware(request: NextRequest) {
   const path = request.nextUrl.pathname;
   const url = request.nextUrl.clone();
   url.pathname = path === "/" ? `/kb/${slug}` : `/kb/${slug}${path}`;
-  return NextResponse.rewrite(url);
+
+  // The rewrite is invisible to the page, which would otherwise emit links
+  // under /kb/<slug>/… — paths that only exist on the platform host and 404
+  // here, since this domain is already rooted at the workspace. Pass the
+  // custom host through so pages can build links relative to the right root.
+  const headers = new Headers(request.headers);
+  headers.set(CUSTOM_DOMAIN_HEADER, host);
+  return NextResponse.rewrite(url, { request: { headers } });
 }
 
 export const config = {
