@@ -4,10 +4,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { io, type Socket } from "socket.io-client";
 import { apiFetch } from "@/lib/api";
+import {
+  PRESENCE_HEARTBEAT_MS,
+  SOCKET_OPTIONS,
+  SOCKET_URL,
+} from "@/lib/config";
 import type { Message, WidgetSession } from "@/lib/types";
-
-const SOCKET_URL =
-  process.env.NEXT_PUBLIC_SOCKET_URL ?? "http://localhost:8000";
 
 /** localStorage key for the anonymous visitor id — this is what makes chat
  *  history survive reloads and return visits. */
@@ -94,12 +96,8 @@ export default function WidgetChat() {
     if (!session) return;
 
     const socket = io(SOCKET_URL, {
-      path: "/socket.io",
-      transports: ["websocket"],
+      ...SOCKET_OPTIONS,
       auth: { token: session.token },
-      reconnection: true,
-      reconnectionDelay: 500,
-      reconnectionDelayMax: 5000,
     });
     socketRef.current = socket;
 
@@ -139,7 +137,10 @@ export default function WidgetChat() {
     });
 
     // Keep the presence TTL fresh.
-    const beat = setInterval(() => socket.emit("heartbeat", {}), 25000);
+    const beat = setInterval(
+      () => socket.emit("heartbeat", {}),
+      PRESENCE_HEARTBEAT_MS,
+    );
 
     return () => {
       clearInterval(beat);

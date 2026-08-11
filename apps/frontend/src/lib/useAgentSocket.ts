@@ -2,9 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import { io, type Socket } from "socket.io-client";
-
-const SOCKET_URL =
-  process.env.NEXT_PUBLIC_SOCKET_URL ?? "http://localhost:8000";
+import {
+  PRESENCE_HEARTBEAT_MS,
+  SOCKET_OPTIONS,
+  SOCKET_URL,
+} from "@/lib/config";
 
 /**
  * Shared agent Socket.IO connection.
@@ -26,14 +28,7 @@ export function useAgentSocket(accessToken: string | null) {
       return;
     }
 
-    const s = io(SOCKET_URL, {
-      path: "/socket.io",
-      transports: ["websocket"],
-      auth: { token: accessToken },
-      reconnection: true,
-      reconnectionDelay: 500,
-      reconnectionDelayMax: 5000,
-    });
+    const s = io(SOCKET_URL, { ...SOCKET_OPTIONS, auth: { token: accessToken } });
 
     ref.current = s;
     setSocket(s);
@@ -42,7 +37,10 @@ export function useAgentSocket(accessToken: string | null) {
     s.on("disconnect", () => setConnected(false));
     s.on("connect_error", () => setConnected(false));
 
-    const beat = setInterval(() => s.emit("heartbeat", {}), 25000);
+    const beat = setInterval(
+      () => s.emit("heartbeat", {}),
+      PRESENCE_HEARTBEAT_MS,
+    );
 
     return () => {
       clearInterval(beat);

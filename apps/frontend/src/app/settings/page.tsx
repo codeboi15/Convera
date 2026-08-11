@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth";
+import { APP_URL } from "@/lib/config";
 import type { Invite, TeamMember, WorkspaceSettings } from "@/lib/auth-types";
 import type { Role } from "@/lib/types";
 import { Alert, Avatar, Badge, Button, Field, Select } from "@/components/ui";
@@ -98,7 +99,7 @@ export default function SettingsPage() {
   };
 
   const widgetSnippet = `<script
-  src="${typeof window !== "undefined" ? window.location.origin : ""}/widget.js"
+  src="${APP_URL}/widget.js"
   data-workspace="${activeWorkspace?.slug ?? ""}"
   async
 ></script>`;
