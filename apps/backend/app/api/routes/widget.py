@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
+from app.core.ratelimit import RateLimit
 from app.realtime import presence
 from app.schemas.conversation import MessageOut
 from app.schemas.kb import ArticleSummary
@@ -18,8 +19,17 @@ from app.services import widget as widget_service
 
 router = APIRouter()
 
+# Public and unauthenticated: a visitor can create conversations and query the
+# knowledge base without an account, so both need an abuse budget.
+session_limit = RateLimit("widget:session", limit=20, window_seconds=60)
+suggest_limit = RateLimit("widget:suggest", limit=60, window_seconds=60)
 
-@router.post("/session", response_model=WidgetSession)
+
+@router.post(
+    "/session",
+    response_model=WidgetSession,
+    dependencies=[Depends(session_limit)],
+)
 async def init_session(
     payload: WidgetInitRequest, session: AsyncSession = Depends(get_session)
 ) -> WidgetSession:
@@ -79,7 +89,11 @@ def _require_widget_token(authorization: Optional[str]) -> tuple:
     return identity
 
 
-@router.get("/suggestions", response_model=List[ArticleSummary])
+@router.get(
+    "/suggestions",
+    response_model=List[ArticleSummary],
+    dependencies=[Depends(suggest_limit)],
+)
 async def widget_suggestions(
     workspace_slug: str,
     q: str = Query(min_length=2, max_length=200),

@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import CurrentUser, get_workspace_context, require_admin
 from app.core.config import settings
 from app.core.db import get_session
+from app.core.ratelimit import RateLimit
 from app.models.enums import Role
 from app.models.workspace import Invite, WorkspaceMember
 from app.schemas.auth import AuthResponse, UserOut
@@ -28,6 +29,9 @@ from app.services import team as team_service
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# Invite tokens are single-use secrets; cap guessing attempts from one address.
+accept_limit = RateLimit("team:invite_accept", limit=10, window_seconds=3600)
 
 
 def _invite_url(token: str) -> str:
@@ -134,7 +138,11 @@ async def revoke_invite(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.post("/invites/accept", response_model=AuthResponse)
+@router.post(
+    "/invites/accept",
+    response_model=AuthResponse,
+    dependencies=[Depends(accept_limit)],
+)
 async def accept_invite(
     payload: AcceptInviteRequest, session: AsyncSession = Depends(get_session)
 ) -> AuthResponse:

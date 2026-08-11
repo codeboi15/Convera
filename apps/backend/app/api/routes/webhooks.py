@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.db import get_session
+from app.core.ratelimit import RateLimit
 from app.realtime import events
 from app.services.email.inbound import process_inbound
 from app.services.email.postmark import parse_webhook
@@ -16,6 +17,9 @@ from app.services.email.postmark import parse_webhook
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# Generous: legitimate mail bursts are normal, this only stops a flood.
+inbound_limit = RateLimit("webhook:inbound", limit=300, window_seconds=60)
 
 
 def _authorized(token: Optional[str]) -> bool:
@@ -30,7 +34,11 @@ def _authorized(token: Optional[str]) -> bool:
     return bool(token) and hmac.compare_digest(token, expected)
 
 
-@router.post("/postmark/inbound", status_code=status.HTTP_200_OK)
+@router.post(
+    "/postmark/inbound",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(inbound_limit)],
+)
 async def postmark_inbound(
     request: Request,
     token: Optional[str] = None,

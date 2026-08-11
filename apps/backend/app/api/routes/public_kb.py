@@ -7,6 +7,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
+from app.core.ratelimit import RateLimit
 from app.models.enums import ArticleStatus
 from app.models.kb import KBArticle, KBCategory
 from app.models.workspace import Workspace
@@ -19,6 +20,9 @@ from app.schemas.kb import (
 from app.services import kb as kb_service
 
 router = APIRouter()
+
+# Unauthenticated and hits the database on every keystroke from the help centre.
+search_limit = RateLimit("public_kb:search", limit=60, window_seconds=60)
 
 
 async def _resolve_workspace(
@@ -98,7 +102,11 @@ async def public_index(
     )
 
 
-@router.get("/{identifier}/search", response_model=List[ArticleSummary])
+@router.get(
+    "/{identifier}/search",
+    response_model=List[ArticleSummary],
+    dependencies=[Depends(search_limit)],
+)
 async def public_search(
     identifier: str,
     q: str = Query(min_length=1, max_length=200),
