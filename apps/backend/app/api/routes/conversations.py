@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, get_workspace_context
 from app.core.db import get_session
+from app.core.ratelimit import RateLimit
 from app.models.enums import Channel, ConversationStatus, SenderType
 from app.schemas.conversation import (
     AssignRequest,
@@ -23,6 +24,11 @@ from app.services import auth as auth_service
 from app.services import conversation as convo_service
 
 router = APIRouter()
+
+# Summarisation calls the Anthropic API, so the budget is per workspace rather
+# than per IP — one tenant's agents cannot burn another tenant's allowance, and
+# a stuck client cannot run up the bill.
+summary_limit = RateLimit("ai:summary", limit=10, window_seconds=3600)
 
 
 @router.get("", response_model=ConversationListOut)
@@ -214,6 +220,7 @@ async def generate_summary(
     is cached on the conversation and only regenerated once enough new
     messages have arrived. Failures degrade to the existing summary.
     """
+    await summary_limit.check(str(current.workspace_id))
     conv = await _load(session, current, conversation_id)
 
     from app.services.ai import summarize_conversation

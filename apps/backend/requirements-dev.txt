@@ -1,0 +1,5 @@
+# Test-only dependencies. Not installed on Railway (Procfile uses requirements.txt).
+-r requirements.txt
+
+pytest==8.3.4
+fakeredis==2.37.0

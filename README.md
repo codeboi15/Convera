@@ -133,7 +133,7 @@ Three tiers, applied until one returns results:
    GIN-indexed `tsvector` for natural phrases
 2. **Substring** — partial words while a visitor is still typing, which is what
    makes widget auto-suggest feel live
-3. **Trigram** — `pg_trgm` `word_similarity` for typos ("refnd" → refund)
+2. **Trigram** — `pg_trgm` `word_similarity` for typos ("refnd" → refund)
 
 The trigram threshold (0.45) was measured, not guessed: `similarity()` over a
 whole title scores a short query too low ("refnd" vs *"How to request a refund"*
@@ -159,6 +159,31 @@ Reserved TLDs (`.test`, `.localhost`) verify automatically. That is safe *by
 construction* rather than by an environment flag — they can never be publicly
 registered, so there is nothing to hijack — and it makes the whole flow
 demonstrable locally. See [`docs/CUSTOM_DOMAINS.md`](docs/CUSTOM_DOMAINS.md).
+
+---
+
+### Rate limiting
+
+Every endpoint reachable without an account has a budget, enforced with Redis
+counters keyed on the caller's address (`X-Forwarded-For`, since Railway
+terminates the connection). Over budget returns `429` with `Retry-After`;
+allowed responses carry `X-RateLimit-Remaining`.
+
+| Endpoint | Budget | Keyed on | Why |
+| --- | --- | --- | --- |
+| `POST /api/auth/login` | 10/min | IP | password brute force |
+| `POST /api/auth/signup` | 5/hour | IP | workspace spam |
+| `POST /api/auth/refresh` | 60/min | IP | token grinding |
+| `POST /api/team/invites/accept` | 10/hour | IP | invite-token guessing |
+| `POST /api/widget/session` | 20/min | IP | anonymous conversation spam |
+| `GET /api/widget/suggestions` | 60/min | IP | unauthenticated search load |
+| `GET /api/public/kb/*/search` | 60/min | IP | unauthenticated search load |
+| `POST /api/webhooks/postmark/inbound` | 300/min | IP | mail floods (generous — bursts are normal) |
+| `POST /api/conversations/*/summary` | 10/hour | **workspace** | spends real money at Anthropic |
+
+Summarisation is the one budget keyed on the workspace rather than the caller:
+it is the only endpoint whose abuse costs money, and one tenant's agents should
+not be able to exhaust another's allowance.
 
 ---
 
@@ -265,31 +290,36 @@ runs over HTTP; no certificate authority will issue for `.test`, since nobody ca
 prove ownership of something nobody can own. The Vercel and Caddy adapters cover
 the real path.
 
-**Rate limiting is not yet enforced.** Redis is provisioned and the counters are
-designed for the public endpoints (widget session, webhooks, auth) but the
-middleware is not wired up.
+**Rate limiting fails open.** If Redis is unreachable, requests are allowed
+rather than rejected: a limiter that takes the API down when its datastore
+blips is worse than the abuse it prevents. The trade is that an attacker who
+can knock over Redis also removes the limits.
 
-**No automated test suite in the repo.** Verification was done with integration
-scripts run against the real database and the deployed API rather than committed
-`pytest` files — the wrong trade for a long-lived codebase, and the first thing
-I would add.
+**Rate limit windows are fixed, not sliding.** A caller can spend the whole
+budget at the end of one window and again at the start of the next, so the true
+worst case is twice the stated limit over a window boundary. Sliding windows
+cost a sorted set per caller; fixed windows cost one integer.
+
+**Test coverage is thin.** `tests/test_ratelimit.py` covers rate limiting;
+everything else was verified with integration scripts run against the real
+database and the deployed API rather than committed `pytest` files — the wrong
+trade for a long-lived codebase, and the first thing I would extend.
 
 ---
 
 ## What I'd build next
 
-1. **Rate limiting** on auth, widget, and webhook endpoints (Redis counters).
-2. **Per-workspace sender identity**, in the order the industry does it:
+1. **Per-workspace sender identity**, in the order the industry does it:
    platform sender + `Reply-To` (built) → a per-workspace address on the
    platform's own domain → the customer's own domain via DKIM delegation. The
    third reuses the DNS-verification flow already built for custom domains: same
    show-records → verify → activate pattern, different record types.
-3. **Automated tests** — port the integration scripts to `pytest` with a
+2. **Automated tests** — port the integration scripts to `pytest` with a
    throwaway database, then add them to CI.
-4. **Analytics dashboard** — response and resolution times, busiest hours, agent
+3. **Analytics dashboard** — response and resolution times, busiest hours, agent
    volume. The data is already in `messages`/`conversations`; it is a query and
    a chart.
-5. **Postgres RLS** as defence in depth behind the existing scoping.
+4. **Postgres RLS** as defence in depth behind the existing scoping.
 
 ---
 
@@ -342,7 +372,8 @@ See [`apps/backend/.env.example`](apps/backend/.env.example) and
 ## Verification
 
 Each feature was exercised against the real database and, once deployed, against
-the live API — not mocks.
+the live API — not mocks. Rate limiting is the one area with a committed test
+suite (`cd apps/backend && pip install -r requirements-dev.txt && pytest`).
 
 | Area | Checks |
 | --- | --- |
@@ -354,6 +385,7 @@ the live API — not mocks.
 | Hybrid search including typos | 8 |
 | Custom domains and host routing | 29 |
 | Brevo adapter and failure paths | 11 |
+| Rate limiting (`pytest`, committed) | 10 |
 | Frontend ↔ backend API contract | 16 |
 | **Production (deployed stack)** | **25** |
 
@@ -376,6 +408,7 @@ apps/
       realtime/    Socket.IO server and events
       worker/      queue and scheduled jobs
     alembic/       migrations
+    tests/         pytest suite
   frontend/    Next.js dashboard, widget, and public help centre
 docs/          architecture, deployment, custom domains
 infra/         local Postgres and Redis

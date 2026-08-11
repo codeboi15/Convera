@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, get_current_user
 from app.core.db import get_session
+from app.core.ratelimit import RateLimit
 from app.core.security import decode_token
 from app.models.user import User
 from app.schemas.auth import (
@@ -22,8 +23,19 @@ from app.services import auth as auth_service
 
 router = APIRouter()
 
+# Abuse budgets. Login is the brute-force surface; signup and invite-accept are
+# the spam/enumeration surfaces. All keyed by client IP.
+login_limit = RateLimit("auth:login", limit=10, window_seconds=60)
+signup_limit = RateLimit("auth:signup", limit=5, window_seconds=3600)
+refresh_limit = RateLimit("auth:refresh", limit=60, window_seconds=60)
 
-@router.post("/signup", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
+
+@router.post(
+    "/signup",
+    response_model=AuthResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(signup_limit)],
+)
 async def signup(
     payload: SignupRequest, session: AsyncSession = Depends(get_session)
 ) -> AuthResponse:
@@ -55,7 +67,7 @@ async def signup(
     )
 
 
-@router.post("/login", response_model=AuthResponse)
+@router.post("/login", response_model=AuthResponse, dependencies=[Depends(login_limit)])
 async def login(
     payload: LoginRequest, session: AsyncSession = Depends(get_session)
 ) -> AuthResponse:
@@ -81,7 +93,9 @@ async def login(
     )
 
 
-@router.post("/refresh", response_model=AuthResponse)
+@router.post(
+    "/refresh", response_model=AuthResponse, dependencies=[Depends(refresh_limit)]
+)
 async def refresh_tokens(
     payload: RefreshRequest, session: AsyncSession = Depends(get_session)
 ) -> AuthResponse:
