@@ -175,10 +175,35 @@ class ImapSmtpProvider(EmailProvider):
         if message.html_body:
             msg.add_alternative(message.html_body, subtype="html")
 
-        with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=30) as s:
-            s.starttls()
-            s.login(settings.smtp_username or sender, settings.smtp_password)
-            s.send_message(msg)
+        # Port 465 speaks TLS from the first byte (implicit TLS / SMTPS); 587
+        # starts plaintext and upgrades with STARTTLS. Some hosts block 587 but
+        # leave 465 open, so both are supported.
+        port = int(settings.smtp_port)
+        try:
+            if port == 465:
+                with smtplib.SMTP_SSL(
+                    settings.smtp_host, port, timeout=30
+                ) as s:
+                    s.login(settings.smtp_username or sender, settings.smtp_password)
+                    s.send_message(msg)
+            else:
+                with smtplib.SMTP(settings.smtp_host, port, timeout=30) as s:
+                    s.starttls()
+                    s.login(settings.smtp_username or sender, settings.smtp_password)
+                    s.send_message(msg)
+        except OSError as exc:
+            # Errno 101/111 here almost always means the platform blocks the
+            # SMTP port rather than anything being wrong with the credentials.
+            logger.error(
+                "SMTP connect to %s:%s failed (%s). If this is a hosted "
+                "platform, outbound SMTP ports are often blocked — try "
+                "SMTP_PORT=465, or switch EMAIL_PROVIDER to an HTTPS-based "
+                "provider.",
+                settings.smtp_host,
+                port,
+                exc,
+            )
+            raise
 
         return msg["Message-ID"]
 
