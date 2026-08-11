@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 import uuid
 from datetime import datetime, timezone
@@ -29,6 +30,16 @@ ALLOWED_ATTRS = {
 
 _TAG_RE = re.compile(r"<[^>]+>")
 _WS_RE = re.compile(r"\s+")
+
+logger = logging.getLogger(__name__)
+
+# Minimum trigram score for a fuzzy title match. Measured against real titles:
+# correct typo matches score 0.50-0.80, unrelated articles 0.29-0.40, so 0.45
+# separates them cleanly. Uses word_similarity (best-matching word) rather than
+# similarity (whole string), which otherwise dilutes short queries against long
+# titles — "refnd" vs "How to request a refund" scores 0.17 whole-string but
+# 0.50 word-wise.
+TRIGRAM_THRESHOLD = 0.45
 
 
 def sanitize_html(html: str) -> str:
@@ -105,12 +116,16 @@ async def search_articles(
     published_only: bool = True,
     limit: int = 10,
 ) -> List[ArticleSummary]:
-    """Full-text search over published articles.
+    """Hybrid search over articles: full-text, then fuzzy.
 
-    Uses the generated ``search_vector`` column (GIN-indexed) with
-    ``websearch_to_tsquery`` so end users can type natural queries. Falls back
-    to a prefix/ILIKE match when the query has no usable lexemes (e.g. a single
-    short word mid-typing), which is what makes widget auto-suggest feel live.
+    Three tiers, applied in order until results are found:
+
+    1. **Full text** — the generated ``search_vector`` (GIN-indexed) with
+       ``websearch_to_tsquery``, so natural queries and phrases rank well.
+    2. **Substring** — catches partial words while a visitor is still typing,
+       which is what makes widget auto-suggest feel live.
+    3. **Trigram similarity** — tolerates typos and missing punctuation
+       ("refnd", "cant login") that neither of the above match.
     """
     query = (query or "").strip()
     if not query:
@@ -134,13 +149,33 @@ async def search_articles(
 
     if not rows:
         term = f"%{query.lower()}%"
-        fallback = stmt.where(
-            or_(
-                func.lower(KBArticle.title).like(term),
-                func.lower(KBArticle.body_text).like(term),
+        rows = (
+            await session.execute(
+                stmt.where(
+                    or_(
+                        func.lower(KBArticle.title).like(term),
+                        func.lower(KBArticle.body_text).like(term),
+                    )
+                ).limit(limit)
             )
-        ).limit(limit)
-        rows = (await session.execute(fallback)).all()
+        ).all()
+
+    if not rows:
+        # Trigram similarity — ranked by closeness, so the best typo match wins.
+        similarity = func.word_similarity(query.lower(), func.lower(KBArticle.title))
+        try:
+            rows = (
+                await session.execute(
+                    stmt.where(similarity > TRIGRAM_THRESHOLD)
+                    .order_by(similarity.desc())
+                    .limit(limit)
+                )
+            ).all()
+        except Exception:
+            # pg_trgm not installed (e.g. a database created before 0003) —
+            # degrade to no fuzzy tier rather than failing the search.
+            logger.debug("trigram search unavailable", exc_info=True)
+            rows = []
 
     return [
         ArticleSummary(
