@@ -112,6 +112,10 @@ def _build(choice: str) -> EmailProvider:
         from app.services.email.resend import ResendProvider
 
         return ResendProvider()
+    if choice == "sendgrid":
+        from app.services.email.sendgrid import SendGridProvider
+
+        return SendGridProvider()
     return StubProvider()
 
 

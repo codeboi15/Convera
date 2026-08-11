@@ -57,6 +57,11 @@ class Settings(BaseSettings):
     brevo_api_key: str = ""
     brevo_from_email: str = ""
 
+    # SendGrid adapter (HTTPS) — single-sender verification, no source-IP
+    # allowlist, which matters when the platform's outbound IPs rotate.
+    sendgrid_api_key: str = ""
+    sendgrid_from_email: str = ""
+
     # Resend adapter (HTTPS) — requires a verified sending domain.
     resend_api_key: str = ""
     resend_from_email: str = ""
