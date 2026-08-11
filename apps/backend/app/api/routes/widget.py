@@ -10,8 +10,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.db import get_session
 from app.realtime import presence
 from app.schemas.conversation import MessageOut
+from app.schemas.kb import ArticleSummary
 from app.schemas.widget import WidgetInitRequest, WidgetSession
 from app.services import conversation as convo_service
+from app.services import kb as kb_service
 from app.services import widget as widget_service
 
 router = APIRouter()
@@ -75,6 +77,26 @@ def _require_widget_token(authorization: Optional[str]) -> tuple:
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid widget token"
         )
     return identity
+
+
+@router.get("/suggestions", response_model=List[ArticleSummary])
+async def widget_suggestions(
+    workspace_slug: str,
+    q: str = Query(min_length=2, max_length=200),
+    limit: int = Query(default=3, ge=1, le=5),
+    session: AsyncSession = Depends(get_session),
+) -> List[ArticleSummary]:
+    """Published articles matching what the visitor is typing.
+
+    Public and unauthenticated — it only ever returns published content, and
+    is what powers self-serve answers inside the chat widget.
+    """
+    workspace = await widget_service.get_workspace_by_slug(session, workspace_slug)
+    if workspace is None:
+        return []
+    return await kb_service.search_articles(
+        session, workspace.id, q, published_only=True, limit=limit
+    )
 
 
 @router.get("/messages", response_model=List[MessageOut])

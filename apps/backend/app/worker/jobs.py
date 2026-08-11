@@ -11,8 +11,16 @@ logger = logging.getLogger(__name__)
 
 
 async def generate_summary(ctx: Dict[str, Any], conversation_id: str) -> None:
-    """Generate/refresh an AI summary for a conversation (implemented later)."""
-    logger.info("generate_summary queued for conversation=%s", conversation_id)
+    """Generate/refresh the AI summary for a conversation."""
+    from app.core.db import async_session
+    from app.services.ai import summarize_conversation
+
+    try:
+        async with async_session() as session:
+            await summarize_conversation(session, uuid.UUID(conversation_id))
+    except Exception:
+        # Summaries are best-effort; never fail the queue over one.
+        logger.exception("generate_summary failed for %s", conversation_id)
 
 
 async def send_email(ctx: Dict[str, Any], message_id: str) -> None:

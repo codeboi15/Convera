@@ -201,6 +201,28 @@ async def set_status(
     return out
 
 
+@router.post("/{conversation_id}/summary", response_model=ConversationOut)
+async def generate_summary(
+    conversation_id: uuid.UUID,
+    force: bool = Query(default=False),
+    current: CurrentUser = Depends(get_workspace_context),
+    session: AsyncSession = Depends(get_session),
+) -> ConversationOut:
+    """Generate or refresh the AI summary for a long conversation.
+
+    Runs inline so the agent gets the summary in the same request; the result
+    is cached on the conversation and only regenerated once enough new
+    messages have arrived. Failures degrade to the existing summary.
+    """
+    conv = await _load(session, current, conversation_id)
+
+    from app.services.ai import summarize_conversation
+
+    await summarize_conversation(session, conv.id, force=force)
+    await session.refresh(conv)
+    return await convo_service.to_out(session, conv)
+
+
 @router.post("/{conversation_id}/read", response_model=dict)
 async def mark_read(
     conversation_id: uuid.UUID,
