@@ -94,32 +94,57 @@ class StubProvider(EmailProvider):
         return None
 
 
-_provider: Optional[EmailProvider] = None
-
-
-def get_provider() -> EmailProvider:
-    """Return the configured provider (cached)."""
-    global _provider
-    if _provider is not None:
-        return _provider
-
-    choice = (settings.email_provider or "stub").lower()
+def _build(choice: str) -> EmailProvider:
+    choice = (choice or "stub").lower()
     if choice == "imap":
         from app.services.email.imap_smtp import ImapSmtpProvider
 
-        _provider = ImapSmtpProvider()
-    elif choice == "postmark":
+        return ImapSmtpProvider()
+    if choice == "postmark":
         from app.services.email.postmark import PostmarkProvider
 
-        _provider = PostmarkProvider()
-    else:
-        _provider = StubProvider()
+        return PostmarkProvider()
+    if choice == "brevo":
+        from app.services.email.brevo import BrevoProvider
 
-    logger.info("email provider: %s", _provider.name)
+        return BrevoProvider()
+    if choice == "resend":
+        from app.services.email.resend import ResendProvider
+
+        return ResendProvider()
+    return StubProvider()
+
+
+_provider: Optional[EmailProvider] = None
+_outbound_provider: Optional[EmailProvider] = None
+
+
+def get_provider() -> EmailProvider:
+    """Provider used for *inbound* mail (and outbound when none is set)."""
+    global _provider
+    if _provider is None:
+        _provider = _build(settings.email_provider)
+        logger.info("email provider (inbound): %s", _provider.name)
     return _provider
 
 
+def get_outbound_provider() -> EmailProvider:
+    """Provider used for *sending*.
+
+    Kept separate because the two directions have different constraints: some
+    hosts block outbound SMTP while inbound IMAP still works, so mail has to
+    leave over HTTPS even though it arrives over IMAP.
+    """
+    global _outbound_provider
+    if _outbound_provider is None:
+        choice = settings.email_outbound_provider or settings.email_provider
+        _outbound_provider = _build(choice)
+        logger.info("email provider (outbound): %s", _outbound_provider.name)
+    return _outbound_provider
+
+
 def reset_provider() -> None:
-    """Clear the cached provider (used by tests)."""
-    global _provider
+    """Clear the cached providers (used by tests)."""
+    global _provider, _outbound_provider
     _provider = None
+    _outbound_provider = None

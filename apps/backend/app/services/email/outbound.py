@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.contact import Contact
 from app.models.conversation import Conversation, Message
 from app.models.workspace import Workspace
-from app.services.email.base import OutboundEmail, get_provider
+from app.services.email.base import OutboundEmail, get_outbound_provider
 from app.services.email.routing import (
     inbound_address_for,
     normalize_message_id,
@@ -77,7 +77,7 @@ async def send_reply(session: AsyncSession, message_id: uuid.UUID) -> bool:
     if payload is None:
         return False
 
-    sent_id = await get_provider().send(payload)
+    sent_id = await get_outbound_provider().send(payload)
     if sent_id:
         # Record our own Message-ID so the customer's reply threads back.
         message.email_message_id = sent_id
