@@ -104,18 +104,6 @@ def _build(choice: str) -> EmailProvider:
         from app.services.email.postmark import PostmarkProvider
 
         return PostmarkProvider()
-    if choice == "brevo":
-        from app.services.email.brevo import BrevoProvider
-
-        return BrevoProvider()
-    if choice == "resend":
-        from app.services.email.resend import ResendProvider
-
-        return ResendProvider()
-    if choice == "sendgrid":
-        from app.services.email.sendgrid import SendGridProvider
-
-        return SendGridProvider()
     if choice == "mailjet":
         from app.services.email.mailjet import MailjetProvider
 

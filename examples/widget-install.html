@@ -1,0 +1,31 @@
+<!doctype html>
+<!--
+  Minimal example of installing the InterCom chat widget on any website.
+
+  The single <script> tag at the bottom is the entire installation. Open this
+  file directly (file://) — the widget loads cross-origin and needs no build
+  step, no npm package, and no server on this page's side.
+
+  Replace data-workspace with your own workspace slug (Settings → Install the
+  chat widget), and the src host with your own deployment.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Acme Store — InterCom widget example</title>
+  </head>
+  <body style="font-family: system-ui, sans-serif; max-width: 40rem; margin: 0 auto; padding: 4rem 1.5rem">
+    <h1>Acme Store</h1>
+    <p>
+      A customer's website. The chat bubble in the corner is InterCom, installed
+      with the one tag at the bottom of this file.
+    </p>
+
+    <script
+      src="https://convera-topaz.vercel.app/widget.js"
+      data-workspace="abc"
+      async
+    ></script>
+  </body>
+</html>

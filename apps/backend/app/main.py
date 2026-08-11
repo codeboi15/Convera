@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.router import api_router
 from app.core.config import settings
 from app.core.logging import configure_logging
+from app.core.middleware import RequestIdMiddleware
 from app.realtime.server import sio
 
 configure_logging()
@@ -29,6 +30,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Outermost middleware: every request gets an id before anything else runs,
+# including the CORS layer, so even rejected requests are traceable.
+app.add_middleware(RequestIdMiddleware)
 
 app.include_router(api_router, prefix="/api")
 
