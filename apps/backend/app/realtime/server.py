@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 import logging
 import uuid
 from typing import Any, Dict, Optional
@@ -7,6 +8,7 @@ from typing import Any, Dict, Optional
 import socketio
 
 from app.core.config import settings
+from app.core.logging import request_context
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +27,23 @@ sio = socketio.AsyncServer(
 )
 
 
+def traced(handler):
+    """Give each Socket.IO event its own request id.
+
+    A socket is long-lived and carries many independent actions, so the trace
+    boundary is the *event*, not the connection. The id also travels into
+    anything the handler enqueues, linking a chat message to the work it
+    triggers.
+    """
+
+    @functools.wraps(handler)
+    async def wrapper(sid, *args, **kwargs):
+        with request_context():
+            return await handler(sid, *args, **kwargs)
+
+    return wrapper
+
+
 async def _session(sid: str) -> Dict[str, Any]:
     try:
         return await sio.get_session(sid) or {}
@@ -33,6 +52,7 @@ async def _session(sid: str) -> Dict[str, Any]:
 
 
 @sio.event
+@traced
 async def connect(sid: str, environ: dict, auth: Optional[dict] = None) -> bool:
     """Authenticate a socket as either an agent (JWT) or an end user (widget token).
 
@@ -121,6 +141,7 @@ async def _verify_membership(
 
 
 @sio.event
+@traced
 async def disconnect(sid: str) -> None:
     from app.realtime import events, presence
 
@@ -138,6 +159,7 @@ async def disconnect(sid: str) -> None:
 
 
 @sio.event
+@traced
 async def heartbeat(sid: str, data: Optional[dict] = None) -> dict:
     """Refresh the presence TTL; clients send this on an interval."""
     from app.realtime import presence
@@ -174,6 +196,7 @@ async def _authorize_conversation(
 
 
 @sio.event
+@traced
 async def join_conversation(sid: str, data: dict) -> dict:
     """Join a conversation room and replay anything missed since ``last_seq``."""
     from app.realtime import events
@@ -220,6 +243,7 @@ async def join_conversation(sid: str, data: dict) -> dict:
 
 
 @sio.event
+@traced
 async def leave_conversation(sid: str, data: dict) -> dict:
     from app.realtime import events
 
@@ -232,6 +256,7 @@ async def leave_conversation(sid: str, data: dict) -> dict:
 
 
 @sio.event
+@traced
 async def send_message(sid: str, data: dict) -> dict:
     """Persist a message, then broadcast it. Persist-first guarantees ordering."""
     from app.core.db import async_session
@@ -293,6 +318,7 @@ async def send_message(sid: str, data: dict) -> dict:
 
 
 @sio.event
+@traced
 async def typing(sid: str, data: dict) -> dict:
     from app.models.enums import SenderType
     from app.realtime import events
@@ -315,6 +341,7 @@ async def typing(sid: str, data: dict) -> dict:
 
 
 @sio.event
+@traced
 async def mark_read(sid: str, data: dict) -> dict:
     from app.core.db import async_session
     from app.models.enums import SenderType
