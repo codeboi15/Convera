@@ -26,15 +26,23 @@ async def generate_summary(ctx: Dict[str, Any], conversation_id: str) -> None:
 async def send_email(ctx: Dict[str, Any], message_id: str) -> None:
     """Deliver an agent reply over the email channel."""
     from app.core.db import async_session
+    from app.services.email.base import get_provider
     from app.services.email.outbound import send_reply
 
+    logger.info(
+        "send_email START message=%s provider=%s", message_id, get_provider().name
+    )
     try:
         async with async_session() as session:
-            await send_reply(session, uuid.UUID(message_id))
+            sent = await send_reply(session, uuid.UUID(message_id))
     except Exception:
         # arq retries the job; the Message-ID unique index keeps it idempotent.
-        logger.exception("send_email failed for message=%s", message_id)
+        logger.exception("send_email FAILED message=%s", message_id)
         raise
+
+    logger.info(
+        "send_email %s message=%s", "OK" if sent else "SKIPPED", message_id
+    )
 
 
 async def poll_inbox(ctx: Dict[str, Any]) -> int:
@@ -49,11 +57,15 @@ async def poll_inbox(ctx: Dict[str, Any]) -> int:
 
     provider = get_provider()
     if not provider.supports_polling:
+        logger.debug("poll_inbox skipped: provider=%s is push-based", provider.name)
         return 0
 
     emails = await provider.fetch()
     if not emails:
+        logger.debug("poll_inbox: no new mail")
         return 0
+
+    logger.info("poll_inbox fetched %d new message(s)", len(emails))
 
     processed = 0
     for email in emails:
