@@ -11,15 +11,26 @@
 
 const DEV_API = "http://localhost:8000";
 
-function trimSlash(value: string): string {
-  return value.replace(/\/+$/, "");
+/**
+ * Normalise a configured base URL.
+ *
+ * A hostname pasted without a scheme ("api.example.com") would otherwise be
+ * treated as a *relative path* by fetch, silently producing requests against
+ * the frontend's own origin. Assume https for anything that isn't localhost.
+ */
+function normalizeBaseUrl(value: string): string {
+  const trimmed = value.trim().replace(/\/+$/, "");
+  if (!trimmed) return "";
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  const isLocal = /^(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?$/i.test(trimmed);
+  return `${isLocal ? "http" : "https"}://${trimmed}`;
 }
 
 /** Base URL of the FastAPI backend (REST). */
-export const API_URL = trimSlash(process.env.NEXT_PUBLIC_API_URL || DEV_API);
+export const API_URL = normalizeBaseUrl(process.env.NEXT_PUBLIC_API_URL || DEV_API);
 
 /** Socket.IO endpoint — defaults to the API host when not set separately. */
-export const SOCKET_URL = trimSlash(
+export const SOCKET_URL = normalizeBaseUrl(
   process.env.NEXT_PUBLIC_SOCKET_URL || process.env.NEXT_PUBLIC_API_URL || DEV_API,
 );
 
@@ -27,7 +38,7 @@ export const SOCKET_URL = trimSlash(
 export const SOCKET_PATH = "/socket.io";
 
 /** Public origin of this app; used to build widget install snippets. */
-export const APP_URL = trimSlash(
+export const APP_URL = normalizeBaseUrl(
   process.env.NEXT_PUBLIC_APP_URL ||
     (typeof window !== "undefined" ? window.location.origin : ""),
 );
