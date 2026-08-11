@@ -1,4 +1,4 @@
-# InterCom
+# Convera
 
 A multi-tenant customer communication platform: live chat, email, a unified
 inbox, a knowledge base, AI conversation summaries and reply drafts, and custom
