@@ -6,6 +6,7 @@ from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
+from app.schemas.kb import ArticleSummary
 from app.models.enums import Channel, ConversationStatus, SenderType
 
 
@@ -79,3 +80,10 @@ class StatusRequest(BaseModel):
     status: ConversationStatus
     # Required when status is "snoozed".
     snoozed_until: Optional[datetime] = None
+
+
+class ReplyDraftOut(BaseModel):
+    """An AI-generated reply draft and the articles it was grounded in."""
+
+    draft: str
+    sources: List[ArticleSummary]

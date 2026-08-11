@@ -12,6 +12,7 @@ from app.core.db import get_session
 from app.core.ratelimit import RateLimit
 from app.models.enums import Channel, ConversationStatus, SenderType
 from app.schemas.conversation import (
+    ReplyDraftOut,
     AssignRequest,
     ConversationDetail,
     ConversationListOut,
@@ -29,6 +30,9 @@ router = APIRouter()
 # than per IP — one tenant's agents cannot burn another tenant's allowance, and
 # a stuck client cannot run up the bill.
 summary_limit = RateLimit("ai:summary", limit=10, window_seconds=3600)
+# Drafting is agent-initiated and cheaper per call, but it is still a paid API
+# request per click — budget it per workspace for the same reason.
+draft_limit = RateLimit("ai:draft", limit=60, window_seconds=3600)
 
 
 @router.get("", response_model=ConversationListOut)
@@ -228,6 +232,32 @@ async def generate_summary(
     await summarize_conversation(session, conv.id, force=force)
     await session.refresh(conv)
     return await convo_service.to_out(session, conv)
+
+
+@router.post("/{conversation_id}/draft", response_model=ReplyDraftOut)
+async def draft_reply(
+    conversation_id: uuid.UUID,
+    current: CurrentUser = Depends(get_workspace_context),
+    session: AsyncSession = Depends(get_session),
+) -> ReplyDraftOut:
+    """Draft the agent's next reply, grounded in the workspace's help centre.
+
+    The draft is returned to the composer for the agent to edit and send — it
+    is never delivered automatically. Returns 503 when the model is slow,
+    unconfigured, or has nothing to work from, so the composer stays usable.
+    """
+    await draft_limit.check(str(current.workspace_id))
+    conv = await _load(session, current, conversation_id)
+
+    from app.services.ai import draft_reply as generate_draft
+
+    draft = await generate_draft(session, conv.id)
+    if draft is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Could not draft a reply right now — please write one manually.",
+        )
+    return ReplyDraftOut(draft=draft.text, sources=draft.sources)
 
 
 @router.post("/{conversation_id}/read", response_model=dict)
