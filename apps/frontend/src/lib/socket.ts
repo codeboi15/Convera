@@ -1,9 +1,7 @@
 "use client";
 
 import { io, type Socket } from "socket.io-client";
-
-const SOCKET_URL =
-  process.env.NEXT_PUBLIC_SOCKET_URL ?? "http://localhost:8000";
+import { SOCKET_OPTIONS, SOCKET_URL } from "@/lib/config";
 
 let socket: Socket | null = null;
 
@@ -14,13 +12,9 @@ let socket: Socket | null = null;
 export function getSocket(auth?: Record<string, unknown>): Socket {
   if (!socket) {
     socket = io(SOCKET_URL, {
-      path: "/socket.io",
-      transports: ["websocket"],
+      ...SOCKET_OPTIONS,
       autoConnect: false,
       auth: auth ?? {},
-      reconnection: true,
-      reconnectionDelay: 500,
-      reconnectionDelayMax: 5000,
     });
   }
   return socket;

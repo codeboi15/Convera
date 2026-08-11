@@ -3,8 +3,8 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import List
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -31,14 +31,59 @@ class Settings(BaseSettings):
     frontend_url: str = "http://localhost:3000"
     cors_origins: str = "http://localhost:3000"
 
-    # Email (Postmark)
+    # Email — "imap" (mailbox polling), "postmark" (webhook), or "stub" (no-op).
+    email_provider: str = "stub"
+    # Outbound can use a different transport from inbound. Some hosts block
+    # outbound SMTP entirely, in which case mail must leave over HTTPS while
+    # inbound still arrives by IMAP. Blank means "same as email_provider".
+    email_outbound_provider: str = ""
+    # Mailbox that receives every workspace's mail; the plus-tag routes it.
+    # e.g. support@example.com -> support+acme@example.com
+    email_inbound_address: str = ""
+    email_from_name: str = "Support"
+
+    # IMAP/SMTP adapter
+    imap_host: str = "imap.gmail.com"
+    imap_port: int = 993
+    imap_username: str = ""
+    imap_password: str = ""
+    smtp_host: str = "smtp.gmail.com"
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+
+    # Mailjet adapter (HTTPS) — key/secret pair, single-sender verification.
+    mailjet_api_key: str = ""
+    mailjet_api_secret: str = ""
+    mailjet_from_email: str = ""
+
+    # Postmark adapter
     postmark_server_token: str = ""
     postmark_from_email: str = ""
     postmark_inbound_secret: str = ""
 
+    # Custom domains — TLS issuance is the only platform-specific part, so it
+    # sits behind a provider: "manual" (default), "caddy", or "vercel".
+    domain_provider: str = "manual"
+    # What customers point their CNAME at.
+    domain_cname_target: str = ""
+    vercel_token: str = ""
+    vercel_project_id: str = ""
+    vercel_team_id: str = ""
+
     # AI (Anthropic Claude)
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-sonnet-5"
+
+    @field_validator("database_url")
+    @classmethod
+    def _normalize_db_url(cls, v: str) -> str:
+        # Accept plain postgres URLs and pin the psycopg v3 driver used by the app.
+        if v.startswith("postgres://"):
+            v = "postgresql://" + v[len("postgres://") :]
+        if v.startswith("postgresql://"):
+            v = "postgresql+psycopg://" + v[len("postgresql://") :]
+        return v
 
     @property
     def cors_origin_list(self) -> List[str]:
@@ -48,10 +93,8 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         return self.app_env.lower() in {"production", "prod"}
 
-
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
-
 
 settings = get_settings()
